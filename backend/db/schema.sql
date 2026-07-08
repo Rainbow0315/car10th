@@ -51,27 +51,18 @@ CREATE TABLE role (
 
 -- ============================================================
 -- 表 4-1-3 操作日志表 operation_log
+-- 说明：记录 APP 业务操作（任务下发、告警处理、遥控等），不记录登录/注册
 -- ============================================================
 CREATE TABLE operation_log (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '日志ID',
-    user_id         BIGINT UNSIGNED NULL COMMENT '操作用户ID，系统任务可为空',
-    username        VARCHAR(64)     NULL COMMENT '操作用户名快照',
-    module          VARCHAR(64)     NOT NULL DEFAULT '' COMMENT '操作模块，如 alarm/patrol/robot/auth',
-    action_type     VARCHAR(64)     NOT NULL COMMENT '操作类型，如 login/patrol_start/alarm_close',
-    action_desc     VARCHAR(512)    NOT NULL DEFAULT '' COMMENT '操作描述',
-    request_method  VARCHAR(16)     NULL COMMENT 'HTTP 方法',
-    request_url     VARCHAR(512)    NULL COMMENT '请求路径',
-    request_params  JSON            NULL COMMENT '请求参数快照',
-    response_code   INT             NULL COMMENT '响应状态码',
-    ip_address      VARCHAR(45)     NULL COMMENT '客户端IP',
-    user_agent      VARCHAR(512)    NULL COMMENT '客户端UA',
-    robot_code      VARCHAR(32)     NULL COMMENT '关联机器人编码',
-    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    user_id         BIGINT UNSIGNED NULL COMMENT '操作用户ID',
+    action          VARCHAR(64)     NOT NULL COMMENT '操作类型',
+    timestamp       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    description     VARCHAR(512)    NOT NULL DEFAULT '' COMMENT '操作描述',
     PRIMARY KEY (id),
     KEY idx_op_log_user (user_id),
-    KEY idx_op_log_module (module),
-    KEY idx_op_log_action (action_type),
-    KEY idx_op_log_time (created_at),
+    KEY idx_op_log_action (action),
+    KEY idx_op_log_timestamp (timestamp),
     CONSTRAINT fk_op_log_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB COMMENT='表4-1-3 操作日志表';
 

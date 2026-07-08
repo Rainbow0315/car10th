@@ -1,12 +1,27 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64, examples=["admin"])
     password: str = Field(..., min_length=1, max_length=128, examples=["admin123"])
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64, examples=["zhangsan"])
+    password: str = Field(..., min_length=6, max_length=128, examples=["123456"])
+    display_name: Optional[str] = Field(None, max_length=64, examples=["张三"])
+    phone: Optional[str] = Field(None, max_length=20, examples=["13800138000"])
+    email: Optional[str] = Field(None, max_length=128, examples=["user@example.com"])
+
+    @field_validator("username")
+    @classmethod
+    def username_alphanumeric(cls, value: str) -> str:
+        if not value.replace("_", "").isalnum():
+            raise ValueError("用户名只能包含字母、数字和下划线")
+        return value
 
 
 class ChangePasswordRequest(BaseModel):

@@ -46,9 +46,25 @@ python main.py
 
 | 方法 | 路径 | 说明 | 是否需要 Token |
 |------|------|------|----------------|
+| POST | `/api/auth/register` | 注册账号（默认值班员角色） | 否 |
 | POST | `/api/auth/login` | 登录，返回 JWT | 否 |
 | GET | `/api/auth/me` | 获取当前用户信息 | 是 |
 | POST | `/api/auth/change-password` | 修改密码 | 是 |
+
+### 注册示例
+
+```json
+POST /api/auth/register
+{
+  "username": "zhangsan",
+  "password": "123456",
+  "display_name": "张三",
+  "phone": "13800138000",
+  "email": "zhangsan@example.com"
+}
+```
+
+注册成功后直接返回 JWT，可免登录进入系统。新用户默认角色为 **值班员（operator）**。
 
 ### 登录示例
 

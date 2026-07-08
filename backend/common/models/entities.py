@@ -198,18 +198,9 @@ class OperationLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
-    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    module: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    action_desc: Mapped[str] = mapped_column(String(512), default="", nullable=False)
-    request_method: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    request_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    request_params: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    response_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    robot_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), default="", nullable=False)
 
     user: Mapped[Optional["User"]] = relationship(back_populates="operation_logs")
 

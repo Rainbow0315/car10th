@@ -5,9 +5,20 @@ from apps.web_api.dependencies import get_current_user
 from apps.web_api.services.auth_service import auth_service
 from common.config.database import get_db
 from common.models import User
-from common.schemas.auth import ChangePasswordRequest, LoginRequest, TokenResponse, UserInfo
+from common.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserInfo,
+)
 
 router = APIRouter()
+
+
+@router.post("/register", response_model=TokenResponse, status_code=201, summary="用户注册")
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    return auth_service.register(db, payload, request)
 
 
 @router.post("/login", response_model=TokenResponse, summary="用户登录")
@@ -23,7 +34,6 @@ def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/change-password", summary="修改密码")
 def change_password(
     payload: ChangePasswordRequest,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -33,4 +43,4 @@ def change_password(
         .filter(User.id == current_user.id)
         .first()
     )
-    return auth_service.change_password(db, user, payload, request)
+    return auth_service.change_password(db, user, payload)
