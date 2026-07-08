@@ -1,0 +1,12 @@
+.DS_Store
+.vscode/
+.idea/
+robot_ws/build/
+robot_ws/install/
+robot_ws/log/
+backend_server/__pycache__/
+flutter_app/build/
+*.pyc
+*.engine
+*.pt
+*.mp4
