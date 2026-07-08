@@ -4,7 +4,13 @@
 robot_ws/build/
 robot_ws/install/
 robot_ws/log/
-backend_server/__pycache__/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.env
+backend/capture_img/*
+!backend/capture_img/.gitkeep
+backend/.venv/
+*.db
 flutter_app/build/
 *.pyc
 *.engine

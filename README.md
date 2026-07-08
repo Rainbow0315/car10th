@@ -8,5 +8,5 @@
 ## 目录
 - docs：文档
 - robot_ws：机器人算法
-- backend_server：后端服务
+- backend：后端服务（FastAPI + ROS Bridge + AI Service）
 - flutter_app：移动端APP
