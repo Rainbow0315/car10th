@@ -7,7 +7,7 @@ def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
-@dataclass(slots=True)
+@dataclass
 class CmdVelCommand:
     linear_x: float
     linear_y: float = 0.0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -21,8 +22,8 @@ class CmdVelRequest(BaseModel):
 
 class RosBridgeState:
     def __init__(self) -> None:
-        self.publisher: CmdVelPublisher | None = None
-        self.startup_error: str | None = None
+        self.publisher: Optional[CmdVelPublisher] = None
+        self.startup_error: Optional[str] = None
 
 
 state = RosBridgeState()
