@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.web_api.routers import auth
+from apps.web_api.routers import auth, teleop
 from common.config import settings
 
 app = FastAPI(
     title="园区智能巡检机器人 API",
-    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM",
+    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM / 遥控",
     version="0.1.0",
 )
 
@@ -25,3 +25,4 @@ def health_check():
 
 
 app.include_router(auth.router, prefix="/api/auth", tags=["鉴权"])
+app.include_router(teleop.router, prefix="/api/teleop", tags=["遥控"])

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     mqtt_password: str = ""
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
+    ros_bridge_http_url: str = "http://127.0.0.1:8001"
 
     llm_api_base: str = ""
     llm_api_key: str = ""

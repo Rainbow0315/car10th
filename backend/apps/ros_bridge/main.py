@@ -6,18 +6,10 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
 
 from apps.ros_bridge.adapters.cmd_vel import CmdVelCommand
 from apps.ros_bridge.publishers.cmd_vel import CmdVelPublisher, RosRuntimeUnavailableError
-
-
-class CmdVelRequest(BaseModel):
-    linear_x: float = Field(..., description="Forward/backward velocity in m/s")
-    linear_y: float = Field(0.0, description="Lateral velocity in m/s")
-    angular_z: float = Field(0.0, description="Angular velocity in rad/s")
-    duration: float = Field(0.3, ge=0.0, le=30.0, description="Publish duration in seconds")
-    rate_hz: float = Field(10.0, ge=1.0, le=30.0, description="Publish rate while duration is active")
+from common.schemas.teleop import CmdVelAcceptedResponse, CmdVelRequest, RosBridgeHealthResponse, StopResponse
 
 
 class RosBridgeState:
@@ -51,17 +43,19 @@ app = FastAPI(
 )
 
 
-@app.get("/health")
+@app.get("/health", response_model=RosBridgeHealthResponse)
 def health_check():
     return {
         "status": "ok" if state.publisher is not None else "degraded",
         "service": "ros_bridge",
         "cmd_vel_topic": state.publisher.topic_name if state.publisher is not None else None,
+        "subscriber_count": state.publisher.subscription_count() if state.publisher is not None else 0,
+        "node_name": state.publisher.node_name if state.publisher is not None else None,
         "startup_error": state.startup_error,
     }
 
 
-@app.post("/api/teleop/cmd-vel")
+@app.post("/api/teleop/cmd-vel", response_model=CmdVelAcceptedResponse)
 def publish_cmd_vel(payload: CmdVelRequest):
     publisher = _require_publisher()
     command = CmdVelCommand(
@@ -71,6 +65,15 @@ def publish_cmd_vel(payload: CmdVelRequest):
         duration=payload.duration,
         rate_hz=payload.rate_hz,
     ).normalized()
+    subscriber_count = publisher.wait_for_subscribers(timeout=payload.wait_for_subscriber_timeout)
+    if subscriber_count < 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No active subscriber on {publisher.topic_name}. "
+                "Please confirm the chassis bringup is running and `ros2 topic info /cmd_vel` shows at least one subscriber."
+            ),
+        )
 
     if command.duration > 0:
         publisher.publish_for_duration(
@@ -92,6 +95,9 @@ def publish_cmd_vel(payload: CmdVelRequest):
     return {
         "status": "accepted",
         "mode": mode,
+        "topic_name": publisher.topic_name,
+        "subscriber_count": subscriber_count,
+        "waited_for_subscriber_timeout": payload.wait_for_subscriber_timeout,
         "command": {
             "linear_x": command.linear_x,
             "linear_y": command.linear_y,
@@ -99,14 +105,19 @@ def publish_cmd_vel(payload: CmdVelRequest):
             "duration": command.duration,
             "rate_hz": command.rate_hz,
         },
-    }
+}
 
 
-@app.post("/api/teleop/stop")
+@app.post("/api/teleop/stop", response_model=StopResponse)
 def stop_robot():
     publisher = _require_publisher()
     publisher.stop()
-    return {"status": "accepted", "command": "stop"}
+    return {
+        "status": "accepted",
+        "command": "stop",
+        "topic_name": publisher.topic_name,
+        "subscriber_count": publisher.subscription_count(),
+    }
 
 
 def _require_publisher() -> CmdVelPublisher:

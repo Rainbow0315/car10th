@@ -28,6 +28,7 @@ class CmdVelPublisher:
         self._lock = threading.Lock()
         self._closed = False
         self._owns_rclpy_context = False
+        self._node_name = node_name
 
         if not rclpy.ok():
             rclpy.init()
@@ -43,6 +44,27 @@ class CmdVelPublisher:
     @property
     def topic_name(self) -> str:
         return self._topic_name
+
+    @property
+    def node_name(self) -> str:
+        return self._node_name
+
+    def subscription_count(self) -> int:
+        with self._lock:
+            self._ensure_open()
+            return self._publisher.get_subscription_count()
+
+    def wait_for_subscribers(self, timeout: float = 2.0, min_count: int = 1, poll_interval: float = 0.05) -> int:
+        deadline = time.monotonic() + max(0.0, timeout)
+        target_count = max(0, min_count)
+
+        while True:
+            count = self.subscription_count()
+            if count >= target_count:
+                return count
+            if time.monotonic() >= deadline:
+                return count
+            time.sleep(max(0.01, poll_interval))
 
     def publish_once(self, linear_x: float, linear_y: float, angular_z: float, repeat: int = 5) -> None:
         with self._lock:
