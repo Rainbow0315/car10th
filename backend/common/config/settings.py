@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     mqtt_broker_port: int = 1883
     mqtt_username: str = ""
     mqtt_password: str = ""
+    mqtt_client_id: str = "parking_backend"
+    mqtt_keepalive: int = 60
+    mqtt_status_interval_sec: int = 2
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
     ros_bridge_http_url: str = "http://127.0.0.1:8001"
