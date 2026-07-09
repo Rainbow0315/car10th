@@ -4,7 +4,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
@@ -18,7 +18,7 @@ ROBOT_CODE_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 class RobotService:
     def __init__(self) -> None:
         self._lock = Lock()
-        self._status_cache: dict[str, dict[str, Any]] = {}
+        self._status_cache: Dict[str, Dict[str, Any]] = {}
         self._ensure_default_robot("robot_001")
 
     def _ensure_default_robot(self, robot_code: str) -> None:
@@ -37,17 +37,17 @@ class RobotService:
                 "updated_at": now,
             }
 
-    def list_status(self) -> list[dict[str, Any]]:
+    def list_status(self) -> List[Dict[str, Any]]:
         with self._lock:
             return list(self._status_cache.values())
 
-    def get_status(self, robot_code: str) -> dict[str, Any]:
+    def get_status(self, robot_code: str) -> Dict[str, Any]:
         self._validate_robot_code(robot_code)
         with self._lock:
             self._ensure_default_robot(robot_code)
             return dict(self._status_cache[robot_code])
 
-    def update_status(self, robot_code: str, **fields: Any) -> dict[str, Any]:
+    def update_status(self, robot_code: str, **fields: Any) -> Dict[str, Any]:
         self._validate_robot_code(robot_code)
         with self._lock:
             self._ensure_default_robot(robot_code)
@@ -56,10 +56,10 @@ class RobotService:
             current["updated_at"] = self._now()
             return dict(current)
 
-    def mark_online(self, robot_code: str, mode: str = "idle") -> dict[str, Any]:
+    def mark_online(self, robot_code: str, mode: str = "idle") -> Dict[str, Any]:
         return self.update_status(robot_code, status="online", mode=mode)
 
-    def dispatch_control(self, robot_code: str, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def dispatch_control(self, robot_code: str, command: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         self._validate_robot_code(robot_code)
         command = command.strip().lower()
 

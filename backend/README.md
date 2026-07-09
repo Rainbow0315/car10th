@@ -168,7 +168,7 @@ python scripts/test_mqtt.py publish-control
 
 本项目使用 MQTT 作为 APP、后端和小车状态之间的消息通道。运行遥控和状态推送功能前，需要先启动 MQTT broker。本项目推荐使用 Docker Compose 启动 Mosquitto。
 
-1. 安装后端依赖
+1. 使用 Python 3.8+ 环境安装后端依赖
 
 ```powershell
 cd g:\personal\Desktop\car\car10th\backend

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import List
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -26,7 +28,7 @@ def get_robot_status(
     return robot_service.get_status(robot_code)
 
 
-@router.get("/robot/status/all", response_model=list[RobotStatusPayload], summary="获取全部小车状态")
+@router.get("/robot/status/all", response_model=List[RobotStatusPayload], summary="获取全部小车状态")
 def list_robot_status(_: User = Depends(get_current_user)):
     return robot_service.list_status()
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,7 @@ class RobotControlRequest(BaseModel):
         description="cmd_vel | stop | patrol_start | patrol_stop | mode_follow",
         examples=["cmd_vel"],
     )
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RobotControlResponse(BaseModel):
@@ -38,7 +38,7 @@ class RobotControlResponse(BaseModel):
     command: str
     status: str
     detail: Optional[str] = None
-    result: Optional[dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
 
 
 class AlarmNotifyPayload(BaseModel):

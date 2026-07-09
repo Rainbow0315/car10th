@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class MqttService:
     def __init__(self) -> None:
-        self._heartbeat_task: asyncio.Task | None = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     def start(self) -> None:
         mqtt_manager.set_message_handler(self.handle_message)
@@ -49,7 +49,7 @@ class MqttService:
             last_error=mqtt_manager.last_error,
         )
 
-    def handle_message(self, topic: str, payload: dict[str, Any]) -> None:
+    def handle_message(self, topic: str, payload: Dict[str, Any]) -> None:
         robot_code = robot_service.parse_control_topic(topic)
         if robot_code is None:
             logger.warning("Ignored MQTT topic: %s", topic)
@@ -96,7 +96,7 @@ class MqttService:
         db: Session,
         user_id: int,
         request: RobotControlRequest,
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         result = robot_service.dispatch_control(
             request.robot_code,
             request.command,

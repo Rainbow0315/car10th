@@ -6,6 +6,7 @@
 
 import sys
 from pathlib import Path
+from typing import List
 
 import pymysql
 
@@ -14,10 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.config.settings import settings
 
 
-def split_sql_statements(sql: str) -> list[str]:
+def split_sql_statements(sql: str) -> List[str]:
     """按分号拆分 SQL，忽略注释行。"""
-    statements: list[str] = []
-    buffer: list[str] = []
+    statements: List[str] = []
+    buffer: List[str] = []
 
     for line in sql.splitlines():
         stripped = line.strip()

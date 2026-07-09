@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import paho.mqtt.client as mqtt
 
@@ -11,7 +11,7 @@ from common.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MessageHandler = Callable[[str, dict[str, Any]], None]
+MessageHandler = Callable[[str, Dict[str, Any]], None]
 
 
 class MqttManager:
@@ -35,7 +35,7 @@ class MqttManager:
     def set_message_handler(self, handler: MessageHandler) -> None:
         self._message_handler = handler
 
-    def start(self, subscribe_topics: list[str] | None = None) -> None:
+    def start(self, subscribe_topics: Optional[List[str]] = None) -> None:
         if self._client is not None:
             return
 
@@ -89,7 +89,7 @@ class MqttManager:
     def publish_json(
         self,
         topic: str,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         qos: int = 1,
         retain: bool = False,
     ) -> bool:

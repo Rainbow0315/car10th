@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Optional
 
 try:
     import rclpy
@@ -29,8 +30,8 @@ class CmdVelPublisher:
         self._closed = False
         self._owns_rclpy_context = False
         self._node_name = node_name
-        self._active_stop_event: threading.Event | None = None
-        self._active_thread: threading.Thread | None = None
+        self._active_stop_event: Optional[threading.Event] = None
+        self._active_thread: Optional[threading.Thread] = None
 
         if not rclpy.ok():
             rclpy.init()
@@ -153,7 +154,7 @@ class CmdVelPublisher:
         if self._closed:
             raise RuntimeError("cmd_vel publisher has already been closed")
 
-    def _cancel_active_motion(self) -> threading.Thread | None:
+    def _cancel_active_motion(self) -> Optional[threading.Thread]:
         with self._lock:
             stop_event = self._active_stop_event
             active_thread = self._active_thread
