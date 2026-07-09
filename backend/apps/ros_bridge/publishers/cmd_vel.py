@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Optional
 
 try:
     import rclpy
@@ -29,6 +30,8 @@ class CmdVelPublisher:
         self._closed = False
         self._owns_rclpy_context = False
         self._node_name = node_name
+        self._active_stop_event: Optional[threading.Event] = None
+        self._active_thread: Optional[threading.Thread] = None
 
         if not rclpy.ok():
             rclpy.init()
@@ -67,6 +70,10 @@ class CmdVelPublisher:
             time.sleep(max(0.01, poll_interval))
 
     def publish_once(self, linear_x: float, linear_y: float, angular_z: float, repeat: int = 5) -> None:
+        self._cancel_active_motion()
+        self._publish_repeated(linear_x, linear_y, angular_z, repeat=repeat)
+
+    def _publish_repeated(self, linear_x: float, linear_y: float, angular_z: float, repeat: int = 5) -> None:
         with self._lock:
             self._ensure_open()
             msg = self._build_twist(linear_x, linear_y, angular_z)
@@ -82,17 +89,25 @@ class CmdVelPublisher:
         duration: float,
         rate_hz: float = 10.0,
     ) -> None:
+        self._cancel_active_motion()
+        stop_event = threading.Event()
         worker = threading.Thread(
             target=self._run_timed_publish,
-            args=(linear_x, linear_y, angular_z, duration, rate_hz),
+            args=(linear_x, linear_y, angular_z, duration, rate_hz, stop_event),
             daemon=True,
         )
+        with self._lock:
+            self._ensure_open()
+            self._active_stop_event = stop_event
+            self._active_thread = worker
         worker.start()
 
     def stop(self) -> None:
-        self.publish_once(0.0, 0.0, 0.0, repeat=3)
+        self._cancel_active_motion()
+        self._publish_repeated(0.0, 0.0, 0.0, repeat=3)
 
     def close(self) -> None:
+        active_thread = self._cancel_active_motion()
         with self._lock:
             if self._closed:
                 return
@@ -101,6 +116,8 @@ class CmdVelPublisher:
             self._node.destroy_node()
             if self._owns_rclpy_context and rclpy.ok():
                 rclpy.shutdown()
+        if active_thread is not None and active_thread is not threading.current_thread():
+            active_thread.join(timeout=1.0)
 
     def _run_timed_publish(
         self,
@@ -109,19 +126,22 @@ class CmdVelPublisher:
         angular_z: float,
         duration: float,
         rate_hz: float,
+        stop_event: threading.Event,
     ) -> None:
         interval = 1.0 / max(rate_hz, 1.0)
         end_time = time.monotonic() + duration
         msg = self._build_twist(linear_x, linear_y, angular_z)
 
-        while time.monotonic() < end_time:
+        while time.monotonic() < end_time and not stop_event.is_set():
             with self._lock:
                 if self._closed:
                     return
                 self._publisher.publish(msg)
-            time.sleep(interval)
+            stop_event.wait(interval)
 
-        self.stop()
+        if not stop_event.is_set():
+            self._publish_repeated(0.0, 0.0, 0.0, repeat=3)
+        self._clear_active_motion(stop_event)
 
     def _build_twist(self, linear_x: float, linear_y: float, angular_z: float) -> Twist:
         msg = Twist()
@@ -133,3 +153,22 @@ class CmdVelPublisher:
     def _ensure_open(self) -> None:
         if self._closed:
             raise RuntimeError("cmd_vel publisher has already been closed")
+
+    def _cancel_active_motion(self) -> Optional[threading.Thread]:
+        with self._lock:
+            stop_event = self._active_stop_event
+            active_thread = self._active_thread
+            self._active_stop_event = None
+            self._active_thread = None
+            if stop_event is not None:
+                stop_event.set()
+
+        if active_thread is not None and active_thread is not threading.current_thread():
+            active_thread.join(timeout=1.0)
+        return active_thread
+
+    def _clear_active_motion(self, stop_event: threading.Event) -> None:
+        with self._lock:
+            if self._active_stop_event is stop_event:
+                self._active_stop_event = None
+                self._active_thread = None

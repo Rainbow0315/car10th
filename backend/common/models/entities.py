@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -147,7 +147,7 @@ class Role(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     role_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     role_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    permissions: Mapped[Optional[list[Any]]] = mapped_column(JSON, nullable=True)
+    permissions: Mapped[Optional[List[Any]]] = mapped_column(JSON, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)
@@ -156,7 +156,7 @@ class Role(Base):
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    users: Mapped[list["User"]] = relationship(back_populates="role")
+    users: Mapped[List["User"]] = relationship(back_populates="role")
 
 
 # ---------- 表 4-1-1 用户信息表 ----------
@@ -182,12 +182,12 @@ class User(Base):
     )
 
     role: Mapped["Role"] = relationship(back_populates="users")
-    operation_logs: Mapped[list["OperationLog"]] = relationship(back_populates="user")
-    feedbacks: Mapped[list["Feedback"]] = relationship(back_populates="user")
-    created_zones: Mapped[list["WarningZone"]] = relationship(back_populates="creator")
-    created_tasks: Mapped[list["VideoAnalysisTask"]] = relationship(back_populates="creator")
-    ai_reports: Mapped[list["AiDailyReport"]] = relationship(back_populates="user")
-    handled_alarms: Mapped[list["AlarmLog"]] = relationship(back_populates="handler")
+    operation_logs: Mapped[List["OperationLog"]] = relationship(back_populates="user")
+    feedbacks: Mapped[List["Feedback"]] = relationship(back_populates="user")
+    created_zones: Mapped[List["WarningZone"]] = relationship(back_populates="creator")
+    created_tasks: Mapped[List["VideoAnalysisTask"]] = relationship(back_populates="creator")
+    ai_reports: Mapped[List["AiDailyReport"]] = relationship(back_populates="user")
+    handled_alarms: Mapped[List["AlarmLog"]] = relationship(back_populates="handler")
 
 
 # ---------- 表 4-1-3 操作日志表 ----------
@@ -236,10 +236,10 @@ class Camera(Base):
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    persons: Mapped[list["Person"]] = relationship(back_populates="camera")
-    event_logs: Mapped[list["EventLog"]] = relationship(back_populates="camera")
-    alarm_logs: Mapped[list["AlarmLog"]] = relationship(back_populates="camera")
-    analysis_tasks: Mapped[list["VideoAnalysisTask"]] = relationship(back_populates="camera")
+    persons: Mapped[List["Person"]] = relationship(back_populates="camera")
+    event_logs: Mapped[List["EventLog"]] = relationship(back_populates="camera")
+    alarm_logs: Mapped[List["AlarmLog"]] = relationship(back_populates="camera")
+    analysis_tasks: Mapped[List["VideoAnalysisTask"]] = relationship(back_populates="camera")
 
 
 # ---------- 表 4-1-4 主体表 ----------
@@ -277,7 +277,7 @@ class Person(Base):
     )
 
     camera: Mapped[Optional["Camera"]] = relationship(back_populates="persons")
-    alarm_logs: Mapped[list["AlarmLog"]] = relationship(back_populates="person")
+    alarm_logs: Mapped[List["AlarmLog"]] = relationship(back_populates="person")
 
 
 # ---------- 表 4-1-6 事件日志表 ----------
@@ -300,7 +300,7 @@ class EventLog(Base):
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String(256), nullable=False)
-    content: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    content: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     robot_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     camera_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("cameras.id"), nullable=True)
     related_alarm_id: Mapped[Optional[int]] = mapped_column(
@@ -332,7 +332,7 @@ class WarningZone(Base):
         nullable=False,
     )
     map_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    polygon_json: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    polygon_json: Mapped[List[Any]] = mapped_column(JSON, nullable=False)
     risk_level: Mapped[RiskLevel] = mapped_column(
         Enum(RiskLevel, values_callable=lambda x: [e.value for e in x]),
         default=RiskLevel.medium,
@@ -347,7 +347,7 @@ class WarningZone(Base):
     )
 
     creator: Mapped[Optional["User"]] = relationship(back_populates="created_zones")
-    alarm_logs: Mapped[list["AlarmLog"]] = relationship(back_populates="warning_zone")
+    alarm_logs: Mapped[List["AlarmLog"]] = relationship(back_populates="warning_zone")
 
 
 # ---------- 表 4-1-10 视频分析任务表 ----------
@@ -361,11 +361,11 @@ class VideoAnalysisTask(Base):
     task_name: Mapped[str] = mapped_column(String(128), nullable=False)
     robot_code: Mapped[str] = mapped_column(String(32), nullable=False)
     camera_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("cameras.id"), nullable=True)
-    waypoints_json: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    waypoints_json: Mapped[List[Any]] = mapped_column(JSON, nullable=False)
     schedule_cron: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     loop_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     return_to_start: Mapped[int] = mapped_column(SmallInteger, default=1, nullable=False)
-    detection_config: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    detection_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
         Enum(TaskStatus, values_callable=lambda x: [e.value for e in x]),
         default=TaskStatus.draft,
@@ -389,8 +389,8 @@ class VideoAnalysisTask(Base):
 
     camera: Mapped[Optional["Camera"]] = relationship(back_populates="analysis_tasks")
     creator: Mapped[Optional["User"]] = relationship(back_populates="created_tasks")
-    alarm_logs: Mapped[list["AlarmLog"]] = relationship(back_populates="task")
-    related_events: Mapped[list["EventLog"]] = relationship(back_populates="related_task")
+    alarm_logs: Mapped[List["AlarmLog"]] = relationship(back_populates="task")
+    related_events: Mapped[List["EventLog"]] = relationship(back_populates="related_task")
 
 
 # ---------- 表 4-1-8 报警记录表 ----------
@@ -444,8 +444,8 @@ class AlarmLog(Base):
     person: Mapped[Optional["Person"]] = relationship(back_populates="alarm_logs")
     task: Mapped[Optional["VideoAnalysisTask"]] = relationship(back_populates="alarm_logs")
     handler: Mapped[Optional["User"]] = relationship(back_populates="handled_alarms")
-    feedbacks: Mapped[list["Feedback"]] = relationship(back_populates="alarm")
-    related_events: Mapped[list["EventLog"]] = relationship(back_populates="related_alarm")
+    feedbacks: Mapped[List["Feedback"]] = relationship(back_populates="alarm")
+    related_events: Mapped[List["EventLog"]] = relationship(back_populates="related_alarm")
 
 
 # ---------- 表 4-1-9 反馈表 ----------
@@ -499,7 +499,7 @@ class AiDailyReport(Base):
     alarm_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     task_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    context_snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    context_snapshot: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     llm_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     generated_by: Mapped[ReportGeneratedBy] = mapped_column(

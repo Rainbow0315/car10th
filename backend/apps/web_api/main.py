@@ -1,13 +1,26 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.web_api.routers import auth, teleop
+from apps.web_api.routers import auth, robot, teleop
+from apps.web_api.services.mqtt_service import mqtt_service
 from common.config import settings
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    mqtt_service.start()
+    await mqtt_service.start_heartbeat()
+    yield
+    await mqtt_service.stop()
+
 
 app = FastAPI(
     title="园区智能巡检机器人 API",
-    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM / 遥控",
+    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM / 遥控 / MQTT",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -21,8 +34,14 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "web_api"}
+    mqtt_health = mqtt_service.health()
+    return {
+        "status": "ok",
+        "service": "web_api",
+        "mqtt_connected": mqtt_health.connected,
+    }
 
 
 app.include_router(auth.router, prefix="/api/auth", tags=["鉴权"])
 app.include_router(teleop.router, prefix="/api/teleop", tags=["遥控"])
+app.include_router(robot.router, prefix="/api", tags=["小车与MQTT"])
