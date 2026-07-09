@@ -21,6 +21,18 @@ from common.config.settings import settings
 from common.mqtt.topics import app_control_topic, robot_status_topic
 
 
+def configure_auth(client: mqtt.Client, role: str) -> None:
+    if role == "app":
+        username = settings.mqtt_app_username
+        password = settings.mqtt_app_password
+    else:
+        username = settings.mqtt_username
+        password = settings.mqtt_password
+
+    if username:
+        client.username_pw_set(username, password or None)
+
+
 def publish_control() -> None:
     topic = app_control_topic("robot_001")
     payload = {
@@ -28,6 +40,7 @@ def publish_control() -> None:
         "payload": {},
     }
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    configure_auth(client, "app")
     client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
     client.loop_start()
     client.publish(topic, json.dumps(payload), qos=1)
@@ -52,6 +65,7 @@ def publish_status() -> None:
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    configure_auth(client, "backend")
     client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
     client.loop_start()
     client.publish(topic, json.dumps(payload), qos=1, retain=True)
@@ -69,6 +83,7 @@ def subscribe_status() -> None:
 
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     client.on_message = on_message
+    configure_auth(client, "app")
     client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
     client.subscribe(topic, qos=1)
     client.loop_start()

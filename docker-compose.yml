@@ -20,11 +20,16 @@ services:
     image: eclipse-mosquitto:2
     container_name: parking_mqtt
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    command: sh /mosquitto/config/init-and-run.sh
     ports:
       - "1883:1883"
       - "9001:9001"
     volumes:
       - ./backend/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./backend/docker/mosquitto/init-and-run.sh:/mosquitto/config/init-and-run.sh:ro
+      - mosquitto_data:/mosquitto/data
 
   backend:
     build:
@@ -36,6 +41,8 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    environment:
+      MQTT_BROKER_HOST: mosquitto
     volumes:
       - ./backend/capture_img:/app/capture_img
     depends_on:
@@ -44,3 +51,4 @@ services:
 
 volumes:
   mysql_data:
+  mosquitto_data:
