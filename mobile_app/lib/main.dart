@@ -21,11 +21,10 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: session),
         Provider<Repository>(
-          create: (_) => MockRepository(),
+          create: (_) => TcpCarRepository(settings: settings),
         ),
       ],
       child: const App(),
     ),
   );
 }
-

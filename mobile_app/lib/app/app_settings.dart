@@ -2,47 +2,44 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings extends ChangeNotifier {
-  static const _kBackendUrlKey = 'settings.backendUrl';
-  static const _kMqttUrlKey = 'settings.mqttUrl';
+  static const _kTcpHostKey = 'settings.tcpHost';
+  static const _kTcpPortKey = 'settings.tcpPort';
 
-  String _backendUrl = 'http://127.0.0.1:8000';
-  String _mqttUrl = 'mqtt://127.0.0.1:1883';
+  String _tcpHost = '192.168.247.227';
+  int _tcpPort = 6000;
 
-  String get backendUrl => _backendUrl;
-  String get mqttUrl => _mqttUrl;
+  String get tcpHost => _tcpHost;
+  int get tcpPort => _tcpPort;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    _backendUrl = prefs.getString(_kBackendUrlKey) ?? _backendUrl;
-    _mqttUrl = prefs.getString(_kMqttUrlKey) ?? _mqttUrl;
+    _tcpHost = prefs.getString(_kTcpHostKey) ?? _tcpHost;
+    _tcpPort = prefs.getInt(_kTcpPortKey) ?? _tcpPort;
     notifyListeners();
   }
 
-  Future<void> updateBackendUrl(String value) async {
-    final v = value.trim();
-    if (v.isEmpty) return;
-    _backendUrl = v;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kBackendUrlKey, v);
-    notifyListeners();
-  }
+  Future<void> updateTcpConnection({
+    required String host,
+    required String port,
+  }) async {
+    final cleanHost = host.trim();
+    final parsedPort = int.tryParse(port.trim());
+    if (cleanHost.isEmpty || parsedPort == null || parsedPort <= 0) return;
 
-  Future<void> updateMqttUrl(String value) async {
-    final v = value.trim();
-    if (v.isEmpty) return;
-    _mqttUrl = v;
+    _tcpHost = cleanHost;
+    _tcpPort = parsedPort;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kMqttUrlKey, v);
+    await prefs.setString(_kTcpHostKey, cleanHost);
+    await prefs.setInt(_kTcpPortKey, parsedPort);
     notifyListeners();
   }
 
   Future<void> clearLocalCache() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kBackendUrlKey);
-    await prefs.remove(_kMqttUrlKey);
-    _backendUrl = 'http://127.0.0.1:8000';
-    _mqttUrl = 'mqtt://127.0.0.1:1883';
+    await prefs.remove(_kTcpHostKey);
+    await prefs.remove(_kTcpPortKey);
+    _tcpHost = '192.168.247.227';
+    _tcpPort = 6000;
     notifyListeners();
   }
 }
-

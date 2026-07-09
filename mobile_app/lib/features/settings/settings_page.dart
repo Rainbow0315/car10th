@@ -12,13 +12,13 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _backend = TextEditingController();
-  final _mqtt = TextEditingController();
+  final _tcpHost = TextEditingController();
+  final _tcpPort = TextEditingController();
 
   @override
   void dispose() {
-    _backend.dispose();
-    _mqtt.dispose();
+    _tcpHost.dispose();
+    _tcpPort.dispose();
     super.dispose();
   }
 
@@ -28,8 +28,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final session = context.watch<AppSession>();
     final theme = Theme.of(context);
 
-    if (_backend.text.isEmpty) _backend.text = settings.backendUrl;
-    if (_mqtt.text.isEmpty) _mqtt.text = settings.mqttUrl;
+    if (_tcpHost.text.isEmpty) _tcpHost.text = settings.tcpHost;
+    if (_tcpPort.text.isEmpty) _tcpPort.text = settings.tcpPort.toString();
 
     return Scaffold(
       appBar: AppBar(title: const Text('系统设置')),
@@ -57,44 +57,52 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('连接配置', style: theme.textTheme.titleSmall),
+                  Text('小车 TCP 控制', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 10),
                   TextField(
-                    controller: _backend,
+                    controller: _tcpHost,
+                    keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: '后端服务地址',
-                      hintText: 'http://ip:8000',
+                      labelText: '小车 IP',
+                      hintText: '192.168.247.227',
                       border: OutlineInputBorder(),
                     ),
-                    enabled: session.canSystemSettings(),
                   ),
                   const SizedBox(height: 10),
                   TextField(
-                    controller: _mqtt,
+                    controller: _tcpPort,
+                    keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'MQTT 地址',
-                      hintText: 'mqtt://ip:1883',
+                      labelText: 'TCP 端口',
+                      hintText: '6000',
                       border: OutlineInputBorder(),
                     ),
-                    enabled: session.canSystemSettings(),
                   ),
                   const SizedBox(height: 10),
                   FilledButton.tonalIcon(
-                    onPressed: session.canSystemSettings()
-                        ? () async {
-                            await settings.updateBackendUrl(_backend.text);
-                            await settings.updateMqttUrl(_mqtt.text);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存配置')));
-                          }
-                        : null,
+                    onPressed: () async {
+                      await settings.updateTcpConnection(
+                        host: _tcpHost.text,
+                        port: _tcpPort.text,
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '已保存 TCP：${settings.tcpHost}:${settings.tcpPort}',
+                          ),
+                        ),
+                      );
+                    },
                     icon: const Icon(Icons.save_outlined),
-                    label: const Text('保存'),
+                    label: const Text('保存 TCP 配置'),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    session.canSystemSettings() ? '管理员可修改连接配置' : '当前角色无系统配置权限',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    '控制页会直接向这个地址发送 Yahboom TCP 私有协议。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -113,12 +121,14 @@ class _SettingsPageState extends State<SettingsPage> {
                     onPressed: () async {
                       await settings.clearLocalCache();
                       if (!context.mounted) return;
-                      _backend.text = settings.backendUrl;
-                      _mqtt.text = settings.mqttUrl;
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已清理本地缓存')));
+                      _tcpHost.text = settings.tcpHost;
+                      _tcpPort.text = settings.tcpPort.toString();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已恢复默认 TCP 配置')),
+                      );
                     },
                     icon: const Icon(Icons.cleaning_services_outlined),
-                    label: const Text('清理缓存'),
+                    label: const Text('恢复默认配置'),
                   ),
                 ],
               ),
@@ -139,11 +149,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     },
                     icon: const Icon(Icons.logout),
                     label: const Text('退出登录'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '修改密码功能待后端实现（FastAPI 权限管理模块）',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -183,10 +188,14 @@ class _KvRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(k, style: theme.textTheme.bodyMedium),
-          Text(v, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            v,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
   }
 }
-
