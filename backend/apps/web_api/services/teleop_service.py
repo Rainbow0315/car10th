@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import HTTPException, status
@@ -12,16 +12,16 @@ class TeleopService:
     def __init__(self) -> None:
         self._timeout = httpx.Timeout(5.0, connect=2.0)
 
-    def health(self) -> dict[str, Any]:
+    def health(self) -> Dict[str, Any]:
         return self._request("GET", "/health")
 
-    def publish_cmd_vel(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def publish_cmd_vel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/teleop/cmd-vel", json=payload)
 
-    def stop(self) -> dict[str, Any]:
+    def stop(self) -> Dict[str, Any]:
         return self._request("POST", "/api/teleop/stop")
 
-    def _request(self, method: str, path: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(self, method: str, path: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{settings.ros_bridge_http_url.rstrip('/')}{path}"
         try:
             with httpx.Client(timeout=self._timeout) as client:

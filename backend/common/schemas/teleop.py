@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,7 @@ class CmdVelAcceptedResponse(BaseModel):
     topic_name: str
     subscriber_count: int
     waited_for_subscriber_timeout: float
-    command: dict[str, Any]
+    command: Dict[str, Any]
 
 
 class StopResponse(BaseModel):
@@ -38,7 +38,7 @@ class StopResponse(BaseModel):
 class RosBridgeHealthResponse(BaseModel):
     status: str
     service: str
-    cmd_vel_topic: str | None = None
+    cmd_vel_topic: Optional[str] = None
     subscriber_count: int = 0
-    node_name: str | None = None
-    startup_error: str | None = None
+    node_name: Optional[str] = None
+    startup_error: Optional[str] = None

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     llm_model: str = "qwen-plus"
 
     capture_img_dir: str = "./capture_img"
-    cors_origins: list[str] = ["*"]
+    cors_origins: List[str] = ["*"]
 
     @property
     def database_url(self) -> str:
