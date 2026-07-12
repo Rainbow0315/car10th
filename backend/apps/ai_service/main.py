@@ -4,7 +4,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 
 from apps.ai_service.pipelines.inspection import inspection_pipeline
-from common.schemas.inspection import ImageInspectionRequest, ImageInspectionResponse
+from common.schemas.inspection import ImageInspectionRequest, ImageInspectionResponse, RosTopicInspectionRequest
 
 app = FastAPI(
     title="Road Inspection AI Service",
@@ -22,6 +22,16 @@ def health_check():
 def detect_image(payload: ImageInspectionRequest):
     try:
         return inspection_pipeline.inspect_image(payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/inspection/detect-ros-image", response_model=ImageInspectionResponse)
+def detect_ros_image(payload: RosTopicInspectionRequest):
+    try:
+        return inspection_pipeline.inspect_ros_topic(payload)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

@@ -87,7 +87,11 @@ class RobotService:
         if command == "inspect_road":
             inspect_payload = dict(payload)
             inspect_payload.setdefault("robot_code", robot_code)
-            result = inspection_service.detect_image(inspect_payload)
+            if inspect_payload.get("image_path"):
+                result = inspection_service.detect_image(inspect_payload)
+            else:
+                inspect_payload.setdefault("topic_name", "/camera/color/image_raw")
+                result = inspection_service.detect_ros_image(inspect_payload)
             self.update_status(robot_code, status="online")
             return {
                 "robot_code": robot_code,
@@ -109,7 +113,7 @@ class RobotService:
                 "patrol_start": "指令已接收，巡航逻辑将在车端任务模块执行",
                 "patrol_stop": "指令已接收，巡航停止逻辑将在车端任务模块执行",
                 "mode_follow": "指令已接收，跟随逻辑将在车端任务模块执行",
-                "capture_image": "已预留拍照指令，明天接通摄像头后可由车端视觉流程落盘图片并触发 inspect_road",
+                "capture_image": "已预留拍照指令；当前更推荐直接调用 inspect_road，并让 AI service 从 /camera/color/image_raw 抓帧检测",
                 "start_recording": "已预留开始录像指令，等待车端视频流程接入",
                 "stop_recording": "已预留结束录像指令，等待车端视频流程接入",
             }

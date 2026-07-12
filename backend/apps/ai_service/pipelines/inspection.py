@@ -5,8 +5,15 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from apps.ai_service.detectors import CrackDetector, YoloV7Detector
+from apps.ai_service.ros_image_capture import ros_image_capture_service
 from common.config.settings import settings
-from common.schemas.inspection import DetectorResult, ImageInspectionRequest, ImageInspectionResponse, InspectionSummary
+from common.schemas.inspection import (
+    DetectorResult,
+    ImageInspectionRequest,
+    ImageInspectionResponse,
+    InspectionSummary,
+    RosTopicInspectionRequest,
+)
 
 
 class InspectionPipeline:
@@ -14,13 +21,48 @@ class InspectionPipeline:
         self._detectors: Dict[str, object] = {}
 
     def inspect_image(self, request: ImageInspectionRequest) -> ImageInspectionResponse:
-        image_path = Path(request.image_path).expanduser()
-        if not image_path.is_absolute():
-            image_path = (Path.cwd() / image_path).resolve()
+        image_path = self._resolve_image_path(request.image_path)
         if not image_path.exists():
             raise FileNotFoundError(f"图片不存在: {image_path}")
 
-        enabled_models = self._normalize_models(request.enabled_models)
+        return self._run_detection(
+            image_path=image_path,
+            robot_code=request.robot_code,
+            camera_code=request.camera_code,
+            enabled_models=request.enabled_models,
+        )
+
+    def inspect_ros_topic(self, request: RosTopicInspectionRequest) -> ImageInspectionResponse:
+        output_dir = self._resolve_output_dir(request.output_dir)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        image_path = output_dir / f"ros_frame_{timestamp}.jpg"
+
+        ros_image_capture_service.capture_single_frame(
+            topic_name=request.topic_name,
+            output_path=image_path,
+            timeout_sec=request.timeout_sec,
+            node_name="ai_service_ros_image_capture",
+        )
+
+        return self._run_detection(
+            image_path=image_path,
+            robot_code=request.robot_code,
+            camera_code=request.camera_code,
+            enabled_models=request.enabled_models,
+        )
+
+    def _run_detection(
+        self,
+        *,
+        image_path: Path,
+        robot_code: str,
+        camera_code: str | None,
+        enabled_models: Iterable[str],
+    ) -> ImageInspectionResponse:
+        if not image_path.exists():
+            raise FileNotFoundError(f"图片不存在: {image_path}")
+
+        enabled_models = self._normalize_models(enabled_models)
         results: Dict[str, DetectorResult] = {}
         labels: Dict[str, int] = {}
         completed_models: List[str] = []
@@ -52,8 +94,8 @@ class InspectionPipeline:
 
         return ImageInspectionResponse(
             image_path=str(image_path),
-            robot_code=request.robot_code,
-            camera_code=request.camera_code,
+            robot_code=robot_code,
+            camera_code=camera_code,
             device=settings.inference_device,
             detected_at=datetime.now(),
             summary=InspectionSummary(
@@ -65,6 +107,19 @@ class InspectionPipeline:
             ),
             results=results,
         )
+
+    def _resolve_image_path(self, image_path: str) -> Path:
+        path = Path(image_path).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        return path
+
+    def _resolve_output_dir(self, output_dir: str | None) -> Path:
+        raw = Path(output_dir).expanduser() if output_dir else Path(settings.inspection_output_dir) / "captured_frames"
+        if not raw.is_absolute():
+            raw = (Path.cwd() / raw).resolve()
+        raw.mkdir(parents=True, exist_ok=True)
+        return raw
 
     def _normalize_models(self, models: Iterable[str]) -> List[str]:
         normalized = []

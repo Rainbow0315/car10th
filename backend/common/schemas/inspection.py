@@ -51,6 +51,18 @@ class ImageInspectionResponse(BaseModel):
     annotated_image_path: Optional[str] = None
 
 
+class RosTopicInspectionRequest(BaseModel):
+    topic_name: str = Field("/camera/color/image_raw", description="ROS 图像 topic")
+    robot_code: str = Field("robot_001", description="机器人编码")
+    camera_code: Optional[str] = Field(None, description="摄像头编码")
+    enabled_models: List[str] = Field(
+        default_factory=lambda: ["crack", "puddle", "fod"],
+        description="可选：crack / puddle / fod",
+    )
+    timeout_sec: float = Field(5.0, ge=0.5, le=30.0, description="等待图像帧的最长秒数")
+    output_dir: Optional[str] = Field(None, description="可选：抓帧输出目录，未填时写入默认 runtime 目录")
+
+
 class SourceInspectionRequest(BaseModel):
     source: str = Field(
         ...,

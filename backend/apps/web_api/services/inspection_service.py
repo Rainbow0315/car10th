@@ -18,6 +18,9 @@ class InspectionService:
     def detect_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/inspection/detect-image", json=payload)
 
+    def detect_ros_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/api/inspection/detect-ros-image", json=payload)
+
     def _request(self, method: str, path: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{settings.ai_service_http_url.rstrip('/')}{path}"
         try:
