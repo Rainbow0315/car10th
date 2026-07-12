@@ -736,3 +736,46 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?limit=10"
 ```
 
 如果车端 `ros_bridge` 和底盘都就绪，预期 `corridor_crawl` 最终 `status=acked`，车辆短时低速直行；如果未就绪，预期 `status=failed` 并带运动链路错误原因。
+
+## 第 17 步：地下狭窄通道会车让行
+
+场景故事：
+
+地下空间经常出现单车道会车：救援车、载货车或优先巡检车需要通过时，普通车辆不能抢行，而是短时低速后退，让出通道。这一步和 `corridor_crawl` 配合，可以讲成“会车管制 -> 让行 -> 单列慢行通过”。
+
+目标效果：
+
+- 后端向让行车辆下发 `corridor_yield` 命令。
+- payload 记录 `priority_robot_code`、`corridor_id` 和让行原因。
+- 车端 dev 版本进入 `busy` 模式，并通过本地 `ros_bridge` 发布低速倒退 `/cmd_vel`。
+- 动作被限制为短时低速，方便真机安全验证。
+
+安全参数限制：
+
+- `linear_x` 范围：`-0.08 ~ 0.0 m/s`
+- `angular_z` 固定为 `0.0`
+- `duration` 范围：`0.2 ~ 2.0 s`
+
+单车安全测试：
+
+```powershell
+$body = @{
+  yielding_robot_code = "robot_001"
+  priority_robot_code = "rescue_robot_001"
+  corridor_id = "B2-narrow-corridor-A"
+  linear_x = -0.05
+  duration = 0.8
+  reason = "救援车优先通过，当前车短时后退让行"
+  require_yielding_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/corridor/yield" -ContentType "application/json" -Body $body
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果车端 `ros_bridge` 和底盘都就绪，预期 `corridor_yield` 最终 `status=acked`，车辆短时低速后退；如果未就绪，预期 `status=failed` 并带运动链路错误原因。

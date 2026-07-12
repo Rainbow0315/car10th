@@ -188,6 +188,23 @@ class FleetCorridorCrawlResponse(BaseModel):
     commands: list[FleetCommandSnapshot]
 
 
+class FleetCorridorYieldRequest(BaseModel):
+    yielding_robot_code: str = Field(..., min_length=1, max_length=32)
+    priority_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    corridor_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    linear_x: float = Field(-0.05, ge=-0.08, le=0.0)
+    duration: float = Field(0.8, ge=0.2, le=2.0)
+    reason: str = Field("yield for priority robot in underground corridor", min_length=1, max_length=128)
+    require_yielding_ready: bool = True
+
+
+class FleetCorridorYieldResponse(BaseModel):
+    yielding_robot_code: str
+    priority_robot_code: Optional[str] = None
+    corridor_id: Optional[str] = None
+    command: FleetCommandSnapshot
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)

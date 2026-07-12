@@ -255,6 +255,23 @@ class RobotAgent:
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
+        elif command == "corridor_yield":
+            self.mode = "busy"
+            motion_result = self._execute_limited_motion(
+                command_payload,
+                action_name="corridor yield",
+                linear_fallback=-0.05,
+                linear_lower=-0.08,
+                linear_upper=0.0,
+                angular_fallback=0.0,
+                angular_lower=0.0,
+                angular_upper=0.0,
+                duration_fallback=0.8,
+                duration_lower=0.2,
+                duration_upper=2.0,
+            )
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
 
         self._publish(
             robot_ack_topic(self.robot_code),

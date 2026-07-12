@@ -16,6 +16,8 @@ from common.schemas.fleet import (
     FleetCommandStatus,
     FleetCorridorCrawlRequest,
     FleetCorridorCrawlResponse,
+    FleetCorridorYieldRequest,
+    FleetCorridorYieldResponse,
     FleetFormationListResponse,
     FleetFormationRequest,
     FleetFormationResponse,
@@ -319,6 +321,53 @@ def dispatch_corridor_crawl(request: FleetCorridorCrawlRequest):
         corridor_id=request.corridor_id,
         robot_codes=robot_codes,
         commands=commands,
+    )
+
+
+@router.post(
+    "/corridor/yield",
+    response_model=FleetCorridorYieldResponse,
+    summary="Ask one robot to yield in a narrow underground corridor",
+)
+def dispatch_corridor_yield(request: FleetCorridorYieldRequest):
+    yielding_robot_code = request.yielding_robot_code.strip()
+    if not yielding_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="yielding_robot_code must not be empty",
+        )
+    if request.priority_robot_code and request.priority_robot_code.strip() == yielding_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="priority_robot_code must be different from yielding_robot_code",
+        )
+    _ensure_fleet_ready([yielding_robot_code], request.require_yielding_ready)
+    command = _publish_fleet_command(
+        yielding_robot_code,
+        "corridor_yield",
+        {
+            "corridor_id": request.corridor_id,
+            "priority_robot_code": request.priority_robot_code,
+            "reason": request.reason,
+            "motion": {
+                "linear_x": request.linear_x,
+                "linear_y": 0.0,
+                "angular_z": 0.0,
+                "duration": request.duration,
+                "rate_hz": 10.0,
+            },
+        },
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetCorridorYieldResponse(
+        yielding_robot_code=yielding_robot_code,
+        priority_robot_code=request.priority_robot_code,
+        corridor_id=request.corridor_id,
+        command=FleetCommandSnapshot.model_validate(command),
     )
 
 
