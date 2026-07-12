@@ -21,7 +21,7 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: session),
         Provider<Repository>(
-          create: (_) => TcpCarRepository(settings: settings),
+          create: (_) => CloudRepository(settings: settings),
         ),
       ],
       child: const App(),

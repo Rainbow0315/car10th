@@ -3,12 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:http/http.dart' as http;
+
 import '../app/app_settings.dart';
 import 'models.dart';
 
 abstract class Repository {
   Future<DashboardStats> getDashboardStats();
   Future<RobotStatus> getRobotStatus({required String robotId});
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus();
+  Future<InspectionMonitorStatus> startInspectionMonitor();
+  Future<InspectionMonitorStatus> stopInspectionMonitor();
   Future<List<AlarmEvent>> listAlarms({
     AlarmType? type,
     RiskLevel? risk,
@@ -207,6 +212,289 @@ class TcpCarRepository extends MockRepository {
   }
 }
 
+class CloudRepository extends TcpCarRepository {
+  CloudRepository({required super.settings});
+
+  Uri _uri(String path, [Map<String, String?> query = const {}]) {
+    final base = settings.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+    final cleanPath = path.startsWith('/') ? path : '/$path';
+    final params = <String, String>{};
+    for (final entry in query.entries) {
+      final value = entry.value;
+      if (value != null && value.isNotEmpty) params[entry.key] = value;
+    }
+    return Uri.parse('$base$cleanPath')
+        .replace(queryParameters: params.isEmpty ? null : params);
+  }
+
+  Future<dynamic> _getJson(String path,
+      [Map<String, String?> query = const {}]) async {
+    final response =
+        await http.get(_uri(path, query)).timeout(const Duration(seconds: 10));
+    return _decode(response);
+  }
+
+  Future<dynamic> _postJson(String path, Map<String, Object?> body) async {
+    final response = await http
+        .post(
+          _uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 30));
+    return _decode(response);
+  }
+
+  dynamic _decode(http.Response response) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('HTTP ${response.statusCode}: ${response.body}');
+    }
+    if (response.body.isEmpty) return null;
+    return jsonDecode(utf8.decode(response.bodyBytes));
+  }
+
+  @override
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus() async {
+    final json = await _getJson('/api/inspection/monitor/status')
+        as Map<String, dynamic>;
+    return _monitorFromJson(json);
+  }
+
+  @override
+  Future<InspectionMonitorStatus> startInspectionMonitor() async {
+    final json = await _postJson('/api/inspection/monitor/start', {
+      'topic_name': '/image_raw',
+      'interval_sec': 1.0,
+      'timeout_sec': 10.0,
+      'robot_code': 'robot_001',
+      'camera_code': 'usb_cam',
+      'enabled_models': ['crack', 'puddle', 'fod'],
+    }) as Map<String, dynamic>;
+    return _monitorFromJson(json);
+  }
+
+  @override
+  Future<InspectionMonitorStatus> stopInspectionMonitor() async {
+    final json =
+        await _postJson('/api/inspection/monitor/stop', <String, Object?>{})
+            as Map<String, dynamic>;
+    return _monitorFromJson(json);
+  }
+
+  @override
+  Future<DashboardStats> getDashboardStats() async {
+    final alarms = await listAlarms();
+    var onlineRobots = 0;
+    var todayPatrolCount = 0;
+    try {
+      final summary =
+          await _getJson('/api/fleet/summary') as Map<String, dynamic>;
+      onlineRobots = _asInt(summary['online_robots']);
+      todayPatrolCount = _asInt(summary['acked_commands']);
+    } catch (_) {
+      try {
+        final robot = await getRobotStatus(robotId: 'robot_001');
+        onlineRobots = robot.network == NetworkStatus.online ? 1 : 0;
+      } catch (_) {
+        onlineRobots = 0;
+      }
+    }
+
+    final counts = <AlarmType, int>{};
+    for (final t in AlarmType.values) {
+      counts[t] = alarms.where((a) => a.type == t).length;
+    }
+    final high = alarms
+        .where((a) =>
+            a.risk == RiskLevel.high && a.status == AlarmStatus.unhandled)
+        .length;
+    return DashboardStats(
+      onlineRobots: onlineRobots,
+      todayPatrolCount: todayPatrolCount,
+      highRiskAlarmCount: high,
+      alarmTypeCounts: counts,
+    );
+  }
+
+  @override
+  Future<RobotStatus> getRobotStatus({required String robotId}) async {
+    final code = robotId == 'robot_01' ? 'robot_001' : robotId;
+    final json =
+        await _getJson('/api/fleet/robots/$code') as Map<String, dynamic>;
+    final payload =
+        (json['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return RobotStatus(
+      robotId: (json['robot_code'] ?? code).toString(),
+      batteryPercent: _asInt(json['battery']),
+      network: json['status'] == 'online'
+          ? NetworkStatus.online
+          : NetworkStatus.offline,
+      mode: _robotModeFromApi((json['mode'] ?? payload['mode']).toString()),
+      speedMps: _asDouble(payload['speed_mps'] ?? payload['linear_x']),
+      latencyMs: _asInt(json['network_latency']),
+    );
+  }
+
+  @override
+  Future<List<AlarmEvent>> listAlarms({
+    AlarmType? type,
+    RiskLevel? risk,
+    AlarmStatus? status,
+  }) async {
+    final json = await _getJson('/api/inspection/alarms', {
+      'limit': '100',
+      'alarm_type': type == null ? null : _alarmTypeToApi(type),
+      'risk_level': risk == null ? null : _riskToApi(risk),
+      'status': status == null ? null : _statusToApi(status),
+    }) as Map<String, dynamic>;
+    final items = (json['items'] as List? ?? const []);
+    return items
+        .map((item) => _alarmFromJson((item as Map).cast<String, dynamic>()))
+        .toList();
+  }
+
+  @override
+  Future<AlarmEvent?> getAlarmById(String id) async {
+    try {
+      final json =
+          await _getJson('/api/inspection/alarms/$id') as Map<String, dynamic>;
+      return _alarmFromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<AlarmEvent> markAlarmHandled({
+    required String id,
+    required String remark,
+  }) async {
+    final json = await _postJson('/api/inspection/alarms/$id/handle', {
+      'remark': remark,
+    }) as Map<String, dynamic>;
+    return _alarmFromJson(json);
+  }
+
+  InspectionMonitorStatus _monitorFromJson(Map<String, dynamic> json) {
+    return InspectionMonitorStatus(
+      running: json['running'] == true,
+      topicName: (json['topic_name'] ?? '/image_raw').toString(),
+      intervalSec: _asDouble(json['interval_sec']),
+      totalFrames: _asInt(json['total_frames']),
+      totalAlarmFrames: _asInt(json['total_alarm_frames']),
+      totalAlarms: _asInt(json['total_alarms']),
+      startedAt: _parseDate(json['started_at']),
+      lastCheckedAt: _parseDate(json['last_checked_at']),
+      lastAlarmAt: _parseDate(json['last_alarm_at']),
+      lastError: json['last_error']?.toString(),
+    );
+  }
+
+  AlarmEvent _alarmFromJson(Map<String, dynamic> json) {
+    final id = (json['alarm_no'] ?? json['id']).toString();
+    final imageUrl = json['image_url']?.toString();
+    return AlarmEvent(
+      id: id,
+      type: _alarmTypeFromApi((json['alarm_type'] ?? '').toString()),
+      risk: _riskFromApi((json['risk_level'] ?? '').toString()),
+      status: _statusFromApi((json['status'] ?? '').toString()),
+      confidence: _asDouble(json['confidence']),
+      timestamp: _parseDate(json['detected_at']) ?? DateTime.now(),
+      point: MapPoint(
+        x: _asDouble(json['pos_x']),
+        y: _asDouble(json['pos_y']),
+        yaw: _asDouble(json['pos_yaw']),
+      ),
+      imagePath: imageUrl?.isNotEmpty == true
+          ? imageUrl!
+          : _uri('/api/inspection/alarms/$id/image').toString(),
+      robotCode: json['robot_code']?.toString(),
+      cameraCode: json['camera_code']?.toString(),
+      detectionModel: json['detection_model']?.toString(),
+      detectionLabel: json['detection_label']?.toString(),
+      bbox:
+          (json['bbox'] as List? ?? const []).map((e) => _asDouble(e)).toList(),
+      remark: json['handle_remark']?.toString(),
+    );
+  }
+
+  AlarmType _alarmTypeFromApi(String value) {
+    switch (value) {
+      case 'water':
+        return AlarmType.water;
+      case 'crack':
+        return AlarmType.crack;
+      case 'foreign_object':
+      case 'fod':
+        return AlarmType.debris;
+      default:
+        return AlarmType.debris;
+    }
+  }
+
+  String _alarmTypeToApi(AlarmType type) {
+    switch (type) {
+      case AlarmType.water:
+        return 'water';
+      case AlarmType.crack:
+        return 'crack';
+      case AlarmType.debris:
+        return 'foreign_object';
+      case AlarmType.smoking:
+        return 'other';
+    }
+  }
+
+  RiskLevel _riskFromApi(String value) {
+    switch (value) {
+      case 'high':
+        return RiskLevel.high;
+      case 'medium':
+        return RiskLevel.medium;
+      default:
+        return RiskLevel.low;
+    }
+  }
+
+  String _riskToApi(RiskLevel risk) => risk.name;
+
+  AlarmStatus _statusFromApi(String value) {
+    return value == 'closed' ? AlarmStatus.handled : AlarmStatus.unhandled;
+  }
+
+  String _statusToApi(AlarmStatus status) {
+    return status == AlarmStatus.handled ? 'closed' : 'pending';
+  }
+
+  RobotMode _robotModeFromApi(String value) {
+    switch (value) {
+      case 'patrol':
+        return RobotMode.patrol;
+      case 'follow':
+        return RobotMode.follow;
+      default:
+        return RobotMode.standby;
+    }
+  }
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+}
+
 enum _CarDirection {
   stop(0),
   front(1),
@@ -228,6 +516,7 @@ class MockRepository implements Repository {
   final List<AlarmEvent> _alarms = [];
   final List<Waypoint> _waypoints = [];
   final List<PatrolRoute> _routes = [];
+  bool _monitorRunning = false;
 
   MockRepository() {
     _seed();
@@ -327,6 +616,42 @@ class MockRepository implements Repository {
         speedMps: double.parse(speed.toStringAsFixed(2)),
         latencyMs: latency,
       ),
+    );
+  }
+
+  @override
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus() async {
+    return _delay(_mockMonitorStatus());
+  }
+
+  @override
+  Future<InspectionMonitorStatus> startInspectionMonitor() async {
+    _monitorRunning = true;
+    return _delay(_mockMonitorStatus());
+  }
+
+  @override
+  Future<InspectionMonitorStatus> stopInspectionMonitor() async {
+    _monitorRunning = false;
+    return _delay(_mockMonitorStatus());
+  }
+
+  InspectionMonitorStatus _mockMonitorStatus() {
+    return InspectionMonitorStatus(
+      running: _monitorRunning,
+      topicName: '/image_raw',
+      intervalSec: 1,
+      totalFrames: _monitorRunning ? 24 : 0,
+      totalAlarmFrames: _monitorRunning ? 3 : 0,
+      totalAlarms:
+          _alarms.where((a) => a.status == AlarmStatus.unhandled).length,
+      startedAt: _monitorRunning
+          ? DateTime.now().subtract(const Duration(minutes: 3))
+          : null,
+      lastCheckedAt: _monitorRunning ? DateTime.now() : null,
+      lastAlarmAt: _monitorRunning
+          ? DateTime.now().subtract(const Duration(seconds: 40))
+          : null,
     );
   }
 

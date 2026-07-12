@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from apps.web_api.services.inspection_alarm_service import inspection_alarm_service
@@ -88,6 +90,17 @@ def get_alarm(alarm_id_or_no: str, db: Session = Depends(get_db)):
     if alarm is None:
         raise HTTPException(status_code=404, detail=f"alarm not found: {alarm_id_or_no}")
     return inspection_alarm_service.to_response(alarm)
+
+
+@router.get("/alarms/{alarm_id_or_no}/image", summary="Get persisted inspection alarm image")
+def get_alarm_image(alarm_id_or_no: str, db: Session = Depends(get_db)):
+    alarm = inspection_alarm_service.get_alarm(db, alarm_id_or_no)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail=f"alarm not found: {alarm_id_or_no}")
+    image_path = Path(alarm.image_path)
+    if not image_path.exists() or not image_path.is_file():
+        raise HTTPException(status_code=404, detail=f"alarm image not found: {alarm.image_path}")
+    return FileResponse(image_path)
 
 
 @router.post("/alarms/{alarm_id_or_no}/handle", response_model=AlarmLogResponse, summary="Mark alarm as handled")

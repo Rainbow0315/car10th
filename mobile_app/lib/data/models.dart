@@ -23,6 +23,32 @@ class DashboardStats {
   });
 }
 
+class InspectionMonitorStatus {
+  final bool running;
+  final String topicName;
+  final double intervalSec;
+  final int totalFrames;
+  final int totalAlarmFrames;
+  final int totalAlarms;
+  final DateTime? startedAt;
+  final DateTime? lastCheckedAt;
+  final DateTime? lastAlarmAt;
+  final String? lastError;
+
+  const InspectionMonitorStatus({
+    required this.running,
+    required this.topicName,
+    required this.intervalSec,
+    required this.totalFrames,
+    required this.totalAlarmFrames,
+    required this.totalAlarms,
+    this.startedAt,
+    this.lastCheckedAt,
+    this.lastAlarmAt,
+    this.lastError,
+  });
+}
+
 class RobotStatus {
   final String robotId;
   final int batteryPercent;
@@ -80,6 +106,11 @@ class AlarmEvent {
   final DateTime timestamp;
   final MapPoint point;
   final String imagePath;
+  final String? robotCode;
+  final String? cameraCode;
+  final String? detectionModel;
+  final String? detectionLabel;
+  final List<double> bbox;
   final String? remark;
 
   const AlarmEvent({
@@ -91,6 +122,11 @@ class AlarmEvent {
     required this.timestamp,
     required this.point,
     required this.imagePath,
+    this.robotCode,
+    this.cameraCode,
+    this.detectionModel,
+    this.detectionLabel,
+    this.bbox = const [],
     this.remark,
   });
 
@@ -107,6 +143,11 @@ class AlarmEvent {
       timestamp: timestamp,
       point: point,
       imagePath: imagePath,
+      robotCode: robotCode,
+      cameraCode: cameraCode,
+      detectionModel: detectionModel,
+      detectionLabel: detectionLabel,
+      bbox: bbox,
       remark: remark ?? this.remark,
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -34,35 +36,12 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
     super.dispose();
   }
 
-  String _typeLabel(AlarmType t) {
-    switch (t) {
-      case AlarmType.water:
-        return '积水';
-      case AlarmType.crack:
-        return '裂缝';
-      case AlarmType.debris:
-        return '异物';
-      case AlarmType.smoking:
-        return '抽烟';
-    }
-  }
-
-  String _riskLabel(RiskLevel r) {
-    switch (r) {
-      case RiskLevel.low:
-        return '低危';
-      case RiskLevel.medium:
-        return '中危';
-      case RiskLevel.high:
-        return '高危';
-    }
-  }
-
   Future<void> _handle(AlarmEvent alarm) async {
     final remark = _remark.text.trim();
     if (remark.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请填写处置备注')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a handling note')),
+      );
       return;
     }
     setState(() => _saving = true);
@@ -72,8 +51,9 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
           .markAlarmHandled(id: alarm.id, remark: remark);
       if (!mounted) return;
       setState(() => _future = Future.value(updated));
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('已标记为已处理')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alarm marked as handled')),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -82,22 +62,21 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final canHandle = context.watch<AppSession>().canHandleAlarm();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('告警详情')),
+      appBar: AppBar(title: const Text('Alarm detail')),
       body: FutureBuilder<AlarmEvent?>(
         future: _future,
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+          if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
           final alarm = snapshot.data;
           if (alarm == null) {
-            return Center(child: Text('未找到告警：${widget.alarmId}'));
+            return Center(child: Text('Alarm not found: ${widget.alarmId}'));
           }
-          _remark.text = alarm.remark ?? '';
+          if (_remark.text.isEmpty) _remark.text = alarm.remark ?? '';
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -106,25 +85,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                 clipBehavior: Clip.antiAlias,
                 child: SizedBox(
                   height: 220,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(color: cs.surfaceContainerLow),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.image_outlined,
-                              size: 54, color: cs.onSurfaceVariant),
-                          const SizedBox(height: 8),
-                          Text(
-                            '异常抓拍原图（后续替换为后端返回的图片 URL）',
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: cs.onSurfaceVariant),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _AlarmImage(imagePath: alarm.imagePath),
                 ),
               ),
               const SizedBox(height: 12),
@@ -134,24 +95,37 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('基本信息', style: theme.textTheme.titleSmall),
+                      Text('Detection', style: theme.textTheme.titleSmall),
                       const SizedBox(height: 8),
-                      _KvRow(k: '异常类型', v: _typeLabel(alarm.type)),
-                      _KvRow(k: '风险等级', v: _riskLabel(alarm.risk)),
+                      _KvRow(k: 'Type', v: _typeLabel(alarm.type)),
+                      _KvRow(k: 'Risk', v: _riskLabel(alarm.risk)),
                       _KvRow(
-                          k: '置信度',
+                          k: 'Confidence',
                           v: '${(alarm.confidence * 100).toStringAsFixed(1)}%'),
+                      _KvRow(k: 'Robot', v: alarm.robotCode ?? '-'),
+                      _KvRow(k: 'Camera', v: alarm.cameraCode ?? '-'),
+                      _KvRow(k: 'Model', v: alarm.detectionModel ?? '-'),
+                      _KvRow(k: 'Label', v: alarm.detectionLabel ?? '-'),
                       _KvRow(
-                          k: '发生时间', v: alarm.timestamp.toLocal().toString()),
+                          k: 'BBox',
+                          v: alarm.bbox
+                              .map((v) => v.toStringAsFixed(1))
+                              .join(', ')),
                       _KvRow(
-                        k: '地图坐标',
+                          k: 'Time', v: alarm.timestamp.toLocal().toString()),
+                      _KvRow(
+                        k: 'Position',
                         v: '(${alarm.point.x.toStringAsFixed(2)}, ${alarm.point.y.toStringAsFixed(2)})',
                       ),
                       _KvRow(
-                          k: '处理状态',
-                          v: alarm.status == AlarmStatus.handled
-                              ? '已处理'
-                              : '未处理'),
+                        k: 'Status',
+                        v: alarm.status == AlarmStatus.handled
+                            ? 'Handled'
+                            : 'Pending',
+                      ),
+                      _KvRow(
+                          k: 'Image',
+                          v: alarm.imagePath.isEmpty ? '-' : alarm.imagePath),
                     ],
                   ),
                 ),
@@ -163,7 +137,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('运维处置', style: theme.textTheme.titleSmall),
+                      Text('Handling', style: theme.textTheme.titleSmall),
                       const SizedBox(height: 10),
                       TextField(
                         controller: _remark,
@@ -172,7 +146,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                             !_saving,
                         maxLines: 3,
                         decoration: const InputDecoration(
-                          labelText: '处置备注',
+                          labelText: 'Handling note',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -191,15 +165,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.check_circle_outline),
-                        label: const Text('标记已处理'),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(
-                                content: Text('查看该点位历史同类异常（待后端接口）'))),
-                        icon: const Icon(Icons.timeline_outlined),
-                        label: const Text('查看历史同类异常'),
+                        label: const Text('Mark handled'),
                       ),
                     ],
                   ),
@@ -208,6 +174,75 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  String _typeLabel(AlarmType t) {
+    switch (t) {
+      case AlarmType.water:
+        return 'Water';
+      case AlarmType.crack:
+        return 'Crack';
+      case AlarmType.debris:
+        return 'Foreign object';
+      case AlarmType.smoking:
+        return 'Other';
+    }
+  }
+
+  String _riskLabel(RiskLevel r) {
+    switch (r) {
+      case RiskLevel.low:
+        return 'Low';
+      case RiskLevel.medium:
+        return 'Medium';
+      case RiskLevel.high:
+        return 'High';
+    }
+  }
+}
+
+class _AlarmImage extends StatelessWidget {
+  final String imagePath;
+
+  const _AlarmImage({required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final uri = Uri.tryParse(imagePath);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return Image.network(imagePath, fit: BoxFit.cover);
+    }
+
+    final file = File(imagePath);
+    if (imagePath.isNotEmpty && file.existsSync()) {
+      return Image.file(file, fit: BoxFit.cover);
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(color: cs.surfaceContainerLow),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.image_outlined, size: 54, color: cs.onSurfaceVariant),
+              const SizedBox(height: 8),
+              Text(
+                imagePath.isEmpty ? 'No risk frame path' : imagePath,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant),
+                textAlign: TextAlign.center,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -228,11 +263,14 @@ class _KvRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-              width: 86, child: Text(k, style: theme.textTheme.bodyMedium)),
+              width: 96, child: Text(k, style: theme.textTheme.bodyMedium)),
           Expanded(
-              child: Text(v,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600))),
+            child: Text(
+              v,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );
