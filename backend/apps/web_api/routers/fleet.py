@@ -26,6 +26,8 @@ from common.schemas.fleet import (
     FleetRescueResponse,
     FleetRobotListResponse,
     FleetRobotSnapshot,
+    FleetSafetyStopRequest,
+    FleetSafetyStopResponse,
     FleetSummaryResponse,
 )
 
@@ -197,6 +199,42 @@ def dispatch_rescue_approach(request: FleetRescueApproachRequest):
         incident_id=request.incident_id,
         command=FleetCommandSnapshot.model_validate(command),
     )
+
+
+@router.post(
+    "/safety/stop",
+    response_model=FleetSafetyStopResponse,
+    summary="Stop selected or online robots for underground safety control",
+)
+def stop_fleet_for_safety(request: FleetSafetyStopRequest):
+    if request.robot_codes is None:
+        robot_codes = [
+            str(item["robot_code"])
+            for item in fleet_service.list_robots()
+            if item.get("status") == "online"
+        ]
+    else:
+        robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="no target robot available for safety stop",
+        )
+    commands = [
+        FleetCommandSnapshot.model_validate(
+            _publish_fleet_command(
+                robot_code,
+                "emergency_stop",
+                {
+                    "incident_id": request.incident_id,
+                    "reason": request.reason,
+                    "scenario": "underground_safety_control",
+                },
+            )
+        )
+        for robot_code in robot_codes
+    ]
+    return FleetSafetyStopResponse(target_robots=robot_codes, commands=commands)
 
 
 @router.post(

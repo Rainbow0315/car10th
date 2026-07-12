@@ -162,7 +162,9 @@ class RobotAgent:
         ack_status = "accepted"
         if command in {"stop", "emergency_stop"}:
             self.mode = "idle"
-            detail = "stop accepted"
+            stop_result = self._execute_robot_stop()
+            ack_status = "accepted" if stop_result["ok"] else "failed"
+            detail = stop_result["detail"]
         elif command in {"patrol_start", "start_patrol"}:
             self.mode = "patrol"
             detail = "patrol mode accepted"
@@ -246,6 +248,22 @@ class RobotAgent:
                 "detail": f"rescue approach failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
             }
         return {"ok": True, "detail": f"rescue approach motion accepted: {command}"}
+
+    def _execute_robot_stop(self) -> Dict[str, Any]:
+        if self.dry_run:
+            return {"ok": True, "detail": "dry-run stop accepted"}
+        url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/stop"
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                response = client.post(url)
+        except httpx.RequestError as exc:
+            return {"ok": False, "detail": f"stop failed: ROS bridge unreachable at {url}: {exc}"}
+        if not response.is_success:
+            return {
+                "ok": False,
+                "detail": f"stop failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
+            }
+        return {"ok": True, "detail": "stop command sent to ROS bridge"}
 
     @staticmethod
     def _now_iso() -> str:

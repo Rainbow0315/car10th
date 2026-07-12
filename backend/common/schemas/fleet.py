@@ -146,6 +146,17 @@ class FleetRescueApproachResponse(BaseModel):
     command: FleetCommandSnapshot
 
 
+class FleetSafetyStopRequest(BaseModel):
+    robot_codes: Optional[list[str]] = Field(default=None, max_length=50)
+    incident_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    reason: str = Field("underground safety control", min_length=1, max_length=128)
+
+
+class FleetSafetyStopResponse(BaseModel):
+    target_robots: list[str]
+    commands: list[FleetCommandSnapshot]
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)

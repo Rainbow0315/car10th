@@ -602,3 +602,47 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 如果车端 `ros_bridge` 和底盘都就绪，预期 `rescue_approach` 最终 `status=acked`，且小车执行一次短时低速前进。如果未就绪，预期 `status=failed`，`error/detail` 会说明是 `ros_bridge` 不可达或 `/cmd_vel` 没有订阅者。
+
+## 第 14 步：地下空间区域管制急停
+
+场景故事：
+
+工业园区地下空间通道狭窄、遮挡多。一旦某台车抛锚、通信异常或通道被占用，调度端需要先让相关车辆停住，再派救援车低速接近，避免多车继续进入事故区域。
+
+目标效果：
+
+- 不传 `robot_codes` 时，后端自动对当前在线车辆下发 `emergency_stop`。
+- 传入 `robot_codes` 时，只管制指定车辆。
+- 车端 dev 版本收到 `emergency_stop` 后，会调用本车 `ros_bridge /api/teleop/stop`。
+- 如果车端 `ros_bridge` 未启动，ACK 会标记失败并带上原因，方便定位运动链路。
+
+对所有在线车辆下发区域管制急停：
+
+```powershell
+$body = @{
+  incident_id = "demo_breakdown_001"
+  reason = "地下空间B2区通道管制，所有在线车辆停止"
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/safety/stop" -ContentType "application/json" -Body $body
+```
+
+只停止指定车辆：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001")
+  incident_id = "demo_breakdown_001"
+  reason = "救援车测试前安全停车"
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/safety/stop" -ContentType "application/json" -Body $body
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+这一步是后续真机运动测试的安全兜底：先验证 stop 可用，再验证 `rescue_approach` 低速接近。
