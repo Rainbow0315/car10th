@@ -109,11 +109,14 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
             FutureBuilder<List<Waypoint>>(
               future: _waypointsFuture,
               builder: (context, snapshot) {
-                if (!snapshot.hasData)
+                if (!snapshot.hasData) {
                   return const Center(
-                      child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator()));
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
                 final list = snapshot.data!;
                 return Card(
                   child: Padding(
