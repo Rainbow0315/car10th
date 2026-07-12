@@ -24,6 +24,8 @@ from common.schemas.fleet import (
     FleetRescueApproachResponse,
     FleetRescueRequest,
     FleetRescueResponse,
+    FleetRescueSearchRequest,
+    FleetRescueSearchResponse,
     FleetRobotListResponse,
     FleetRobotSnapshot,
     FleetSafetyStopRequest,
@@ -194,6 +196,48 @@ def dispatch_rescue_approach(request: FleetRescueApproachRequest):
             detail=command["error"] or "MQTT publish failed",
         )
     return FleetRescueApproachResponse(
+        responder_robot_code=responder_robot_code,
+        disabled_robot_code=request.disabled_robot_code,
+        incident_id=request.incident_id,
+        command=FleetCommandSnapshot.model_validate(command),
+    )
+
+
+@router.post(
+    "/rescue/search",
+    response_model=FleetRescueSearchResponse,
+    summary="Ask a responder robot to rotate slowly for rescue search",
+)
+def dispatch_rescue_search(request: FleetRescueSearchRequest):
+    responder_robot_code = request.responder_robot_code.strip()
+    if not responder_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="responder_robot_code must not be empty",
+        )
+    _ensure_fleet_ready([responder_robot_code], request.require_responder_ready)
+    payload = {
+        "incident_id": request.incident_id,
+        "disabled_robot_code": request.disabled_robot_code,
+        "motion": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": request.angular_z,
+            "duration": request.duration,
+            "rate_hz": 10.0,
+        },
+    }
+    command = _publish_fleet_command(
+        responder_robot_code,
+        "rescue_search",
+        payload,
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetRescueSearchResponse(
         responder_robot_code=responder_robot_code,
         disabled_robot_code=request.disabled_robot_code,
         incident_id=request.incident_id,

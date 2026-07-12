@@ -146,6 +146,22 @@ class FleetRescueApproachResponse(BaseModel):
     command: FleetCommandSnapshot
 
 
+class FleetRescueSearchRequest(BaseModel):
+    responder_robot_code: str = Field(..., min_length=1, max_length=32)
+    disabled_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    incident_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    angular_z: float = Field(0.25, ge=0.1, le=0.4)
+    duration: float = Field(1.5, ge=0.5, le=3.0)
+    require_responder_ready: bool = True
+
+
+class FleetRescueSearchResponse(BaseModel):
+    responder_robot_code: str
+    disabled_robot_code: Optional[str] = None
+    incident_id: Optional[str] = None
+    command: FleetCommandSnapshot
+
+
 class FleetSafetyStopRequest(BaseModel):
     robot_codes: Optional[list[str]] = Field(default=None, max_length=50)
     incident_id: Optional[str] = Field(default=None, min_length=1, max_length=64)

@@ -646,3 +646,45 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 这一步是后续真机运动测试的安全兜底：先验证 stop 可用，再验证 `rescue_approach` 低速接近。
+
+## 第 15 步：救援车原地搜索抛锚车
+
+场景故事：
+
+地下空间 GPS 不稳定、遮挡多，救援车到达疑似区域后，需要低速原地旋转，配合摄像头、雷达或后续视觉识别寻找抛锚车、反光标识或人工标记。这一步是从“前往事故区域”过渡到“现场搜索确认”的动作。
+
+目标效果：
+
+- 后端向救援车下发 `rescue_search` 命令。
+- 车端 dev 版本进入 `rescue` 模式。
+- 车端通过本地 `ros_bridge` 发布原地旋转 `/cmd_vel`。
+- 动作被限制为低速、短时，便于真机调试。
+
+安全参数限制：
+
+- `linear_x` 固定为 `0.0`
+- `angular_z` 范围：`0.1 ~ 0.4 rad/s`
+- `duration` 范围：`0.5 ~ 3.0 s`
+
+下发原地搜索：
+
+```powershell
+$body = @{
+  responder_robot_code = "robot_001"
+  disabled_robot_code = "robot_missing"
+  incident_id = "demo_breakdown_001"
+  angular_z = 0.25
+  duration = 1.5
+  require_responder_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/rescue/search" -ContentType "application/json" -Body $body
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果车端 `ros_bridge` 和底盘都就绪，预期 `rescue_search` 最终 `status=acked`，小车短时低速原地旋转；如果未就绪，预期 `status=failed` 并带运动链路错误原因。
