@@ -149,4 +149,3 @@ class ChatMessage {
     required this.text,
   });
 }
-

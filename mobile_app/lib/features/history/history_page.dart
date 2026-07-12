@@ -44,14 +44,16 @@ class _HistoryPageState extends State<HistoryPage> {
                         child: OutlinedButton.icon(
                           onPressed: _pickDate,
                           icon: const Icon(Icons.calendar_month_outlined),
-                          label: Text('${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}'),
+                          label: Text(
+                              '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}'),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: () => ScaffoldMessenger.of(context)
-                              .showSnackBar(const SnackBar(content: Text('开始回放（待后端接口）'))),
+                              .showSnackBar(
+                                  const SnackBar(content: Text('开始回放（待后端接口）'))),
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('回放'),
                         ),
@@ -61,7 +63,8 @@ class _HistoryPageState extends State<HistoryPage> {
                   const SizedBox(height: 10),
                   Text(
                     '回放内容：小车轨迹 + 告警事件时间线（待对接后端查询接口）',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -86,7 +89,8 @@ class _HistoryPageState extends State<HistoryPage> {
                       child: Center(
                         child: Text(
                           '这里展示轨迹回放与告警点位\n（后续对接 SLAM 栅格地图与轨迹数据）',
-                          style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -101,4 +105,3 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 }
-

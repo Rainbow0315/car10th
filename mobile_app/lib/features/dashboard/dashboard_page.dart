@@ -212,7 +212,8 @@ class _StatsCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(typeLabel(t), style: theme.textTheme.bodyMedium),
-              Text('${stats.alarmTypeCounts[t] ?? 0}', style: theme.textTheme.titleMedium),
+              Text('${stats.alarmTypeCounts[t] ?? 0}',
+                  style: theme.textTheme.titleMedium),
             ],
           ),
         )
@@ -228,9 +229,15 @@ class _StatsCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: _Metric(label: '在线小车', value: '${stats.onlineRobots}')),
-                Expanded(child: _Metric(label: '今日巡检', value: '${stats.todayPatrolCount}')),
-                Expanded(child: _Metric(label: '高危未处理', value: '${stats.highRiskAlarmCount}')),
+                Expanded(
+                    child:
+                        _Metric(label: '在线小车', value: '${stats.onlineRobots}')),
+                Expanded(
+                    child: _Metric(
+                        label: '今日巡检', value: '${stats.todayPatrolCount}')),
+                Expanded(
+                    child: _Metric(
+                        label: '高危未处理', value: '${stats.highRiskAlarmCount}')),
               ],
             ),
             const SizedBox(height: 12),
@@ -256,9 +263,13 @@ class _Metric extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(value, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+        Text(value,
+            style: theme.textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        Text(label,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],
     );
   }
@@ -310,7 +321,8 @@ class _RobotCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               '当前速度：${status.speedMps.toStringAsFixed(2)} m/s',
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -318,4 +330,3 @@ class _RobotCard extends StatelessWidget {
     );
   }
 }
-

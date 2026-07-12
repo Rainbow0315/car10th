@@ -21,7 +21,9 @@ class _MapPageState extends State<MapPage> {
     await context.read<Repository>().sendNavGoal(goal: goal);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已下发导航目标：(${goal.x.toStringAsFixed(2)}, ${goal.y.toStringAsFixed(2)})')),
+      SnackBar(
+          content: Text(
+              '已下发导航目标：(${goal.x.toStringAsFixed(2)}, ${goal.y.toStringAsFixed(2)})')),
     );
   }
 
@@ -70,7 +72,8 @@ class _MapPageState extends State<MapPage> {
             const SizedBox(height: 12),
             Text(
               '点击地图下发单点导航目标（Mock）',
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 8),
             Row(
@@ -107,13 +110,15 @@ class _MapPageState extends State<MapPage> {
                   children: [
                     Text('实时信息', style: theme.textTheme.titleSmall),
                     const SizedBox(height: 6),
-                    Text('小车坐标：(${_robot.x.toStringAsFixed(2)}, ${_robot.y.toStringAsFixed(2)})'),
+                    Text(
+                        '小车坐标：(${_robot.x.toStringAsFixed(2)}, ${_robot.y.toStringAsFixed(2)})'),
                     Text(_goal == null
                         ? '导航目标：未选择'
                         : '导航目标：(${_goal!.x.toStringAsFixed(2)}, ${_goal!.y.toStringAsFixed(2)})'),
                     Text(
                       '航点/路线/禁区/轨迹：后续对接后端下发与回放接口',
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -150,12 +155,14 @@ class _MapPainter extends CustomPainter {
       canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
     }
 
-    final robotOffset = Offset((robot.x / 12) * size.width, (robot.y / 12) * size.height);
+    final robotOffset =
+        Offset((robot.x / 12) * size.width, (robot.y / 12) * size.height);
     final robotPaint = Paint()..color = const Color(0xFF1E5EFF);
     canvas.drawCircle(robotOffset, 8, robotPaint);
 
     if (goal != null) {
-      final goalOffset = Offset((goal!.x / 12) * size.width, (goal!.y / 12) * size.height);
+      final goalOffset =
+          Offset((goal!.x / 12) * size.width, (goal!.y / 12) * size.height);
       final goalPaint = Paint()..color = const Color(0xFFFF4D4F);
       canvas.drawCircle(goalOffset, 7, goalPaint);
       final line = Paint()
@@ -173,4 +180,3 @@ class _MapPainter extends CustomPainter {
         oldDelegate.goal?.y != goal?.y;
   }
 }
-

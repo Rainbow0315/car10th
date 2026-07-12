@@ -56,13 +56,15 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     Text(
                       '地下空间智能巡检',
-                      style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: theme.textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '账号密码登录（管理员/值班员/运维）',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 18),
@@ -73,7 +75,8 @@ class _LoginPageState extends State<LoginPage> {
                         prefixIcon: Icon(Icons.person_outline),
                         border: OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? '请输入账号' : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? '请输入账号' : null,
                       textInputAction: TextInputAction.next,
                     ),
                     const SizedBox(height: 12),
@@ -84,7 +87,8 @@ class _LoginPageState extends State<LoginPage> {
                         prefixIcon: Icon(Icons.lock_outline),
                         border: OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.isEmpty) ? '请输入密码' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? '请输入密码' : null,
                       obscureText: true,
                       onFieldSubmitted: (_) => _submit(),
                     ),
@@ -102,7 +106,8 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 12),
                     Text(
                       '示例账号：admin01 / duty01 / operator01（根据前缀自动识别角色）',
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -115,4 +120,3 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
-

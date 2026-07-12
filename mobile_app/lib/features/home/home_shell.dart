@@ -33,13 +33,15 @@ class _HomeShellState extends State<HomeShell> {
         selectedIndex: _index,
         onDestinationSelected: (v) => setState(() => _index = v),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), label: '总控'),
+          NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined), label: '总控'),
           NavigationDestination(icon: Icon(Icons.map_outlined), label: '地图'),
-          NavigationDestination(icon: Icon(Icons.notifications_none), label: '告警'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), label: '设置'),
+          NavigationDestination(
+              icon: Icon(Icons.notifications_none), label: '告警'),
+          NavigationDestination(
+              icon: Icon(Icons.settings_outlined), label: '设置'),
         ],
       ),
     );
   }
 }
-

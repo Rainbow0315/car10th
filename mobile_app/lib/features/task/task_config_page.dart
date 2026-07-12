@@ -40,8 +40,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
       builder: (context) => _WaypointDialog(initial: waypoint),
     );
     if (result == null) return;
-    await context.read<Repository>().upsertWaypoint(result);
     if (!mounted) return;
+    await context.read<Repository>().upsertWaypoint(result);
     await _refresh();
   }
 
@@ -60,8 +60,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
       builder: (context) => _RouteDialog(initial: route, waypoints: waypoints),
     );
     if (result == null) return;
-    await context.read<Repository>().upsertRoute(result);
     if (!mounted) return;
+    await context.read<Repository>().upsertRoute(result);
     await _refresh();
   }
 
@@ -96,7 +96,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                     const SizedBox(height: 8),
                     FilledButton.tonalIcon(
                       onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('定时巡检配置（待后端接口）'))),
+                          .showSnackBar(
+                              const SnackBar(content: Text('定时巡检配置（待后端接口）'))),
                       icon: const Icon(Icons.schedule),
                       label: const Text('编辑定时配置'),
                     ),
@@ -108,7 +109,11 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
             FutureBuilder<List<Waypoint>>(
               future: _waypointsFuture,
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()));
+                if (!snapshot.hasData)
+                  return const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: CircularProgressIndicator()));
                 final list = snapshot.data!;
                 return Card(
                   child: Padding(
@@ -135,7 +140,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                             (w) => ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(w.name),
-                              subtitle: Text('(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
+                              subtitle: Text(
+                                  '(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
                               trailing: Wrap(
                                 spacing: 6,
                                 children: [
@@ -180,7 +186,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                               children: [
                                 Text('巡逻路线', style: theme.textTheme.titleSmall),
                                 IconButton(
-                                  onPressed: () => _editRoute(waypoints: waypoints),
+                                  onPressed: () =>
+                                      _editRoute(waypoints: waypoints),
                                   icon: const Icon(Icons.add),
                                   tooltip: '新增路线',
                                 ),
@@ -195,7 +202,9 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(r.name),
                                   subtitle: Text(
-                                    r.waypointIds.map((id) => wpMap[id]?.name ?? id).join(' -> '),
+                                    r.waypointIds
+                                        .map((id) => wpMap[id]?.name ?? id)
+                                        .join(' -> '),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -203,7 +212,8 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                                     spacing: 6,
                                     children: [
                                       IconButton(
-                                        onPressed: () => _editRoute(route: r, waypoints: waypoints),
+                                        onPressed: () => _editRoute(
+                                            route: r, waypoints: waypoints),
                                         icon: const Icon(Icons.edit_outlined),
                                       ),
                                       IconButton(
@@ -231,11 +241,12 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                   children: [
                     Text('视觉模型参数（占位）', style: theme.textTheme.titleSmall),
                     const SizedBox(height: 10),
-                    Text('远程开关检测、调整置信阈值：待后端网关与 MQTT 指令协议'),
+                    const Text('远程开关检测、调整置信阈值：待后端网关与 MQTT 指令协议'),
                     const SizedBox(height: 10),
                     FilledButton.tonalIcon(
                       onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('模型参数配置（待后端接口）'))),
+                          .showSnackBar(
+                              const SnackBar(content: Text('模型参数配置（待后端接口）'))),
                       icon: const Icon(Icons.tune),
                       label: const Text('配置参数'),
                     ),
@@ -292,8 +303,10 @@ class _WaypointDialogState extends State<_WaypointDialog> {
           children: [
             TextFormField(
               controller: _name,
-              decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
-              validator: (v) => (v == null || v.trim().isEmpty) ? '请输入名称' : null,
+              decoration: const InputDecoration(
+                  labelText: '名称', border: OutlineInputBorder()),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? '请输入名称' : null,
             ),
             const SizedBox(height: 10),
             Row(
@@ -301,18 +314,22 @@ class _WaypointDialogState extends State<_WaypointDialog> {
                 Expanded(
                   child: TextFormField(
                     controller: _x,
-                    decoration: const InputDecoration(labelText: 'X', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: 'X', border: OutlineInputBorder()),
                     keyboardType: TextInputType.number,
-                    validator: (v) => double.tryParse(v ?? '') == null ? '无效' : null,
+                    validator: (v) =>
+                        double.tryParse(v ?? '') == null ? '无效' : null,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextFormField(
                     controller: _y,
-                    decoration: const InputDecoration(labelText: 'Y', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: 'Y', border: OutlineInputBorder()),
                     keyboardType: TextInputType.number,
-                    validator: (v) => double.tryParse(v ?? '') == null ? '无效' : null,
+                    validator: (v) =>
+                        double.tryParse(v ?? '') == null ? '无效' : null,
                   ),
                 ),
               ],
@@ -321,17 +338,21 @@ class _WaypointDialogState extends State<_WaypointDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消')),
         FilledButton(
           onPressed: () {
             final ok = _formKey.currentState?.validate() ?? false;
             if (!ok) return;
-            final id = widget.initial?.id ?? 'wp_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
+            final id = widget.initial?.id ??
+                'wp_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
             Navigator.of(context).pop(
               Waypoint(
                 id: id,
                 name: _name.text.trim(),
-                point: MapPoint(x: double.parse(_x.text), y: double.parse(_y.text), yaw: 0),
+                point: MapPoint(
+                    x: double.parse(_x.text), y: double.parse(_y.text), yaw: 0),
               ),
             );
           },
@@ -386,11 +407,13 @@ class _RouteDialogState extends State<_RouteDialog> {
             children: [
               TextFormField(
                 controller: _name,
-                decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.trim().isEmpty) ? '请输入名称' : null,
+                decoration: const InputDecoration(
+                    labelText: '名称', border: OutlineInputBorder()),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? '请输入名称' : null,
               ),
               const SizedBox(height: 10),
-              Align(
+              const Align(
                 alignment: Alignment.centerLeft,
                 child: Text('选择航点（顺序为暂存顺序，后续可做拖拽排序）'),
               ),
@@ -413,7 +436,8 @@ class _RouteDialogState extends State<_RouteDialog> {
                             });
                           },
                           title: Text(w.name),
-                          subtitle: Text('(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
+                          subtitle: Text(
+                              '(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
                           controlAffinity: ListTileControlAffinity.leading,
                         ),
                       )
@@ -425,16 +449,20 @@ class _RouteDialogState extends State<_RouteDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消')),
         FilledButton(
           onPressed: () {
             final ok = _formKey.currentState?.validate() ?? false;
             if (!ok) return;
             if (_selected.length < 2) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('至少选择 2 个航点')));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('至少选择 2 个航点')));
               return;
             }
-            final id = widget.initial?.id ?? 'rt_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
+            final id = widget.initial?.id ??
+                'rt_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
             Navigator.of(context).pop(
               PatrolRoute(
                 id: id,
@@ -465,10 +493,11 @@ class _KvRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(k, style: theme.textTheme.bodyMedium),
-          Text(v, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(v,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
         ],
       ),
     );
   }
 }
-

@@ -26,7 +26,9 @@ class _AlarmListPageState extends State<AlarmListPage> {
   }
 
   Future<List<AlarmEvent>> _load() {
-    return context.read<Repository>().listAlarms(type: _type, risk: _risk, status: _status);
+    return context
+        .read<Repository>()
+        .listAlarms(type: _type, risk: _risk, status: _status);
   }
 
   String _typeLabel(AlarmType t) {
@@ -74,7 +76,8 @@ class _AlarmListPageState extends State<AlarmListPage> {
   }
 
   void _open(AlarmEvent alarm) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => AlarmDetailPage(alarmId: alarm.id)));
+    Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => AlarmDetailPage(alarmId: alarm.id)));
   }
 
   Future<void> _refresh() async {
@@ -132,7 +135,9 @@ class _AlarmListPageState extends State<AlarmListPage> {
                 children: [
                   Text('暂无告警', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 6),
-                  Text('可尝试清空筛选条件', style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+                  Text('可尝试清空筛选条件',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: cs.onSurfaceVariant)),
                 ],
               );
             }
@@ -146,13 +151,15 @@ class _AlarmListPageState extends State<AlarmListPage> {
                 final riskColor = _riskColor(a.risk, cs);
                 return ListTile(
                   tileColor: cs.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   leading: CircleAvatar(
-                    backgroundColor: riskColor.withOpacity(0.18),
+                    backgroundColor: riskColor.withAlpha(46),
                     foregroundColor: riskColor,
                     child: Text(_riskLabel(a.risk)),
                   ),
-                  title: Text('${_typeLabel(a.type)} · ${_statusLabel(a.status)}'),
+                  title:
+                      Text('${_typeLabel(a.type)} · ${_statusLabel(a.status)}'),
                   subtitle: Text(
                     '${a.timestamp.toLocal()}  置信度 ${(a.confidence * 100).toStringAsFixed(1)}%',
                     maxLines: 1,
@@ -216,31 +223,37 @@ class _FilterSheetState extends State<_FilterSheet> {
           Text('筛选', style: theme.textTheme.titleMedium),
           const SizedBox(height: 10),
           DropdownButtonFormField<AlarmType?>(
-            value: _type,
-            decoration: const InputDecoration(labelText: '异常类型', border: OutlineInputBorder()),
+            initialValue: _type,
+            decoration: const InputDecoration(
+                labelText: '异常类型', border: OutlineInputBorder()),
             items: [
               const DropdownMenuItem(value: null, child: Text('全部')),
-              ...AlarmType.values.map((e) => DropdownMenuItem(value: e, child: Text(_typeLabel(e)))),
+              ...AlarmType.values.map((e) =>
+                  DropdownMenuItem(value: e, child: Text(_typeLabel(e)))),
             ],
             onChanged: (v) => setState(() => _type = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<RiskLevel?>(
-            value: _risk,
-            decoration: const InputDecoration(labelText: '风险等级', border: OutlineInputBorder()),
+            initialValue: _risk,
+            decoration: const InputDecoration(
+                labelText: '风险等级', border: OutlineInputBorder()),
             items: [
               const DropdownMenuItem(value: null, child: Text('全部')),
-              ...RiskLevel.values.map((e) => DropdownMenuItem(value: e, child: Text(_riskLabel(e)))),
+              ...RiskLevel.values.map((e) =>
+                  DropdownMenuItem(value: e, child: Text(_riskLabel(e)))),
             ],
             onChanged: (v) => setState(() => _risk = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<AlarmStatus?>(
-            value: _status,
-            decoration: const InputDecoration(labelText: '处理状态', border: OutlineInputBorder()),
+            initialValue: _status,
+            decoration: const InputDecoration(
+                labelText: '处理状态', border: OutlineInputBorder()),
             items: [
               const DropdownMenuItem(value: null, child: Text('全部')),
-              ...AlarmStatus.values.map((e) => DropdownMenuItem(value: e, child: Text(_statusLabel(e)))),
+              ...AlarmStatus.values.map((e) =>
+                  DropdownMenuItem(value: e, child: Text(_statusLabel(e)))),
             ],
             onChanged: (v) => setState(() => _status = v),
           ),
@@ -260,7 +273,8 @@ class _FilterSheetState extends State<_FilterSheet> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(_FilterState(type: _type, risk: _risk, status: _status)),
+                  onPressed: () => Navigator.of(context).pop(
+                      _FilterState(type: _type, risk: _risk, status: _status)),
                   child: const Text('应用'),
                 ),
               ),
@@ -305,4 +319,3 @@ class _FilterSheetState extends State<_FilterSheet> {
     }
   }
 }
-

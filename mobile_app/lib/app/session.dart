@@ -65,9 +65,14 @@ class AppSession extends ChangeNotifier {
 
   bool canManageUsers() => _role == UserRole.admin;
   bool canSystemSettings() => _role == UserRole.admin;
-  bool canTaskConfig() => _role == UserRole.admin || _role == UserRole.dutyOfficer;
-  bool canRemoteControl() => _role == UserRole.admin || _role == UserRole.operator;
-  bool canHandleAlarm() => _role == UserRole.admin || _role == UserRole.operator || _role == UserRole.dutyOfficer;
+  bool canTaskConfig() =>
+      _role == UserRole.admin || _role == UserRole.dutyOfficer;
+  bool canRemoteControl() =>
+      _role == UserRole.admin || _role == UserRole.operator;
+  bool canHandleAlarm() =>
+      _role == UserRole.admin ||
+      _role == UserRole.operator ||
+      _role == UserRole.dutyOfficer;
 
   UserRole _inferRole(String username) {
     final s = username.toLowerCase();
@@ -84,4 +89,3 @@ class AppSession extends ChangeNotifier {
     return null;
   }
 }
-

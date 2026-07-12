@@ -117,7 +117,10 @@ class _ChatPageState extends State<ChatPage> {
                   FilledButton(
                     onPressed: _loading ? null : _send,
                     child: _loading
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.send),
                   ),
                 ],
@@ -140,7 +143,8 @@ class _ChatBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final align = message.isUser ? Alignment.centerRight : Alignment.centerLeft;
-    final bg = message.isUser ? cs.primaryContainer : cs.surfaceContainerHighest;
+    final bg =
+        message.isUser ? cs.primaryContainer : cs.surfaceContainerHighest;
     final fg = message.isUser ? cs.onPrimaryContainer : cs.onSurface;
 
     return Align(
@@ -151,11 +155,11 @@ class _ChatBubble extends StatelessWidget {
           color: bg,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Text(message.text, style: theme.textTheme.bodyMedium?.copyWith(color: fg)),
+            child: Text(message.text,
+                style: theme.textTheme.bodyMedium?.copyWith(color: fg)),
           ),
         ),
       ),
     );
   }
 }
-
