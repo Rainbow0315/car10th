@@ -98,6 +98,9 @@ class FleetService:
     ) -> Dict[str, Any]:
         with self._lock:
             current = self._commands[command_id]
+            if published and current.get("status") == "acked":
+                current["published_at"] = current.get("published_at") or self._now()
+                return dict(current)
             current["status"] = "published" if published else "failed"
             current["published_at"] = self._now() if published else None
             current["error"] = error

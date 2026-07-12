@@ -6,6 +6,8 @@ from apps.web_api.services.fleet_service import fleet_service
 from common.config.settings import settings
 from common.mqtt import fleet_command_topic, mqtt_manager
 from common.schemas.fleet import (
+    FleetBatchCommandRequest,
+    FleetBatchCommandResponse,
     FleetCommandRequest,
     FleetCommandSnapshot,
     FleetRobotListResponse,
@@ -35,18 +37,62 @@ def get_fleet_robot(robot_code: str):
     summary="Send command to one fleet robot",
 )
 def send_fleet_command(robot_code: str, request: FleetCommandRequest):
+    command = _publish_fleet_command(robot_code, request.command, request.payload)
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetCommandSnapshot.model_validate(command)
+
+
+@router.post(
+    "/commands/batch",
+    response_model=FleetBatchCommandResponse,
+    summary="Send one command to multiple fleet robots",
+)
+def send_batch_fleet_command(request: FleetBatchCommandRequest):
+    seen: set[str] = set()
+    commands = []
+    for robot_code in request.robot_codes:
+        normalized_robot_code = robot_code.strip()
+        if not normalized_robot_code or normalized_robot_code in seen:
+            continue
+        seen.add(normalized_robot_code)
+        commands.append(
+            FleetCommandSnapshot.model_validate(
+                _publish_fleet_command(
+                    normalized_robot_code,
+                    request.command,
+                    request.payload,
+                )
+            )
+        )
+    if not commands:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+    return FleetBatchCommandResponse(commands=commands)
+
+
+def _publish_fleet_command(
+    robot_code: str,
+    command_name: str,
+    payload: dict,
+):
     topic = fleet_command_topic(robot_code)
     command = fleet_service.create_command(
         robot_code=robot_code,
-        command=request.command,
-        payload=request.payload,
+        command=command_name,
+        payload=payload,
         topic=topic,
     )
     mqtt_payload = {
         "command_id": command["command_id"],
         "robot_code": robot_code,
-        "command": request.command,
-        "payload": request.payload,
+        "command": command_name,
+        "payload": payload,
         "issued_at": command["issued_at"].isoformat(),
     }
     published = mqtt_manager.publish_json(topic, mqtt_payload, qos=1, retain=False)
@@ -55,12 +101,7 @@ def send_fleet_command(robot_code: str, request: FleetCommandRequest):
         published=published,
         error=None if published else mqtt_manager.last_error,
     )
-    if not published:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=command["error"] or "MQTT publish failed",
-        )
-    return FleetCommandSnapshot.model_validate(command)
+    return command
 
 
 @router.get(

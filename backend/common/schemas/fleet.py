@@ -37,6 +37,10 @@ class FleetCommandRequest(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FleetBatchCommandRequest(FleetCommandRequest):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=50)
+
+
 class FleetCommandSnapshot(BaseModel):
     command_id: str
     robot_code: str
@@ -49,3 +53,7 @@ class FleetCommandSnapshot(BaseModel):
     acked_at: Optional[datetime] = None
     ack: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+class FleetBatchCommandResponse(BaseModel):
+    commands: list[FleetCommandSnapshot]

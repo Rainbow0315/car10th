@@ -129,3 +129,52 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/commands/<command_id>
 ```
 
 预期 `status` 变为 `acked`，`ack.detail` 包含 agent 的处理结果。dry-run 模式只模拟模式变化，不会让真实小车运动；上车后可以先发 `stop` 或 `set_mode` 验证通信，再逐步接入 ROS2 控制。
+
+## 第 3 步：多车批量协同指令
+
+目标效果：
+
+- 同时启动两台 agent，例如 `robot_001` 和 `robot_002`。
+- 后端通过一次 HTTP 请求向多台车分别下发同一个指令。
+- 每台车都有独立 `command_id`，每台车都需要独立 ACK。
+- 查询 `/api/fleet/robots` 可以看到两台车都进入预期模式。
+
+终端 3：启动第一台模拟车。
+
+```powershell
+cd backend
+python -m apps.robot_agent.main --robot-code robot_001 --dry-run
+```
+
+终端 4：启动第二台模拟车。
+
+```powershell
+cd backend
+python -m apps.robot_agent.main --robot-code robot_002 --dry-run
+```
+
+终端 5：批量下发协同模式。
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001", "robot_002")
+  command = "set_mode"
+  payload = @{ mode = "patrol" }
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/commands/batch" -ContentType "application/json" -Body $body
+```
+
+预期返回中包含两条 `commands`，分别对应 `robot_001` 和 `robot_002`。等待 1 秒后分别用返回的 `command_id` 查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/commands/<command_id>
+```
+
+预期两条命令都变为 `acked`。再查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/robots
+```
+
+预期两台车都为 `online`，且 `mode` 都为 `patrol`。这一步仍然不控制真实电机，只验证多车通信和协同指令分发闭环。
