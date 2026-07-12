@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, HTTPException, status
 
 from apps.web_api.services.fleet_service import fleet_service
@@ -10,6 +12,8 @@ from common.schemas.fleet import (
     FleetBatchCommandResponse,
     FleetCommandRequest,
     FleetCommandSnapshot,
+    FleetFormationRequest,
+    FleetFormationResponse,
     FleetRobotListResponse,
     FleetRobotSnapshot,
 )
@@ -52,28 +56,73 @@ def send_fleet_command(robot_code: str, request: FleetCommandRequest):
     summary="Send one command to multiple fleet robots",
 )
 def send_batch_fleet_command(request: FleetBatchCommandRequest):
-    seen: set[str] = set()
-    commands = []
-    for robot_code in request.robot_codes:
-        normalized_robot_code = robot_code.strip()
-        if not normalized_robot_code or normalized_robot_code in seen:
-            continue
-        seen.add(normalized_robot_code)
-        commands.append(
-            FleetCommandSnapshot.model_validate(
-                _publish_fleet_command(
-                    normalized_robot_code,
-                    request.command,
-                    request.payload,
-                )
-            )
-        )
-    if not commands:
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="robot_codes must contain at least one non-empty robot code",
         )
+    commands = [
+        FleetCommandSnapshot.model_validate(
+            _publish_fleet_command(robot_code, request.command, request.payload)
+        )
+        for robot_code in robot_codes
+    ]
     return FleetBatchCommandResponse(commands=commands)
+
+
+@router.post(
+    "/formations",
+    response_model=FleetFormationResponse,
+    summary="Create a simple formation task for multiple robots",
+)
+def create_fleet_formation(request: FleetFormationRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+
+    formation_id = uuid.uuid4().hex
+    commands = []
+    for slot_index, robot_code in enumerate(robot_codes):
+        role = "leader" if slot_index == 0 else "follower"
+        payload = {
+            "formation_id": formation_id,
+            "formation_type": request.formation_type,
+            "role": role,
+            "slot_index": slot_index,
+            "offset_x": -slot_index * request.spacing_m,
+            "offset_y": 0.0,
+            "mode": request.mode,
+        }
+        commands.append(
+            FleetCommandSnapshot.model_validate(
+                _publish_fleet_command(
+                    robot_code,
+                    "set_formation",
+                    payload,
+                )
+            )
+        )
+    return FleetFormationResponse(
+        formation_id=formation_id,
+        formation_type=request.formation_type,
+        commands=commands,
+    )
+
+
+def _unique_robot_codes(robot_codes: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized = []
+    for robot_code in robot_codes:
+        item = robot_code.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized
 
 
 def _publish_fleet_command(

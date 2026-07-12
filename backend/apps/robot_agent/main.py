@@ -21,6 +21,9 @@ class RobotAgent:
         self.interval_sec = max(1, interval_sec)
         self.dry_run = dry_run
         self.mode = "idle"
+        self.formation_id: str | None = None
+        self.formation_role: str | None = None
+        self.formation_slot: int | None = None
         self.stop_event = Event()
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -77,6 +80,9 @@ class RobotAgent:
                 "mode": mode or self.mode,
                 "battery": 100 if self.dry_run else 0,
                 "network_latency": 0,
+                "formation_id": self.formation_id,
+                "formation_role": self.formation_role,
+                "formation_slot": self.formation_slot,
                 "timestamp": self._now_iso(),
             },
         )
@@ -157,6 +163,16 @@ class RobotAgent:
             if requested_mode:
                 self.mode = requested_mode
                 detail = f"mode set to {requested_mode}"
+        elif command == "set_formation":
+            requested_mode = str(command_payload.get("mode") or "patrol").strip()
+            self.mode = requested_mode or self.mode
+            self.formation_id = str(command_payload.get("formation_id") or "").strip() or None
+            self.formation_role = str(command_payload.get("role") or "").strip() or None
+            try:
+                self.formation_slot = int(command_payload.get("slot_index"))
+            except (TypeError, ValueError):
+                self.formation_slot = None
+            detail = f"formation role set to {self.formation_role or 'unknown'}"
 
         self._publish(
             robot_ack_topic(self.robot_code),

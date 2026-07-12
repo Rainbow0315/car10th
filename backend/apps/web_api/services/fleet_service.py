@@ -44,6 +44,9 @@ class FleetService:
             current["pose_y"] = self._optional_float(payload.get("pose_y"), current.get("pose_y"))
             current["pose_yaw"] = self._optional_float(payload.get("pose_yaw"), current.get("pose_yaw"))
             current["map_name"] = payload.get("map_name") or current.get("map_name")
+            current["formation_id"] = payload.get("formation_id") or current.get("formation_id")
+            current["formation_role"] = payload.get("formation_role") or current.get("formation_role")
+            current["formation_slot"] = self._optional_int(payload.get("formation_slot"), current.get("formation_slot"))
             current["last_seen_at"] = now
             current["updated_at"] = now
             current["last_message_type"] = message_type
@@ -141,6 +144,9 @@ class FleetService:
             "pose_y": None,
             "pose_yaw": None,
             "map_name": None,
+            "formation_id": None,
+            "formation_role": None,
+            "formation_slot": None,
             "last_seen_at": None,
             "updated_at": now,
             "last_message_type": None,
@@ -178,6 +184,15 @@ class FleetService:
             return fallback
         try:
             return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    @staticmethod
+    def _optional_int(value: Any, fallback: Optional[int]) -> Optional[int]:
+        if value is None:
+            return fallback
+        try:
+            return int(value)
         except (TypeError, ValueError):
             return fallback
 

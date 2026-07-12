@@ -178,3 +178,51 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/robots
 ```
 
 预期两台车都为 `online`，且 `mode` 都为 `patrol`。这一步仍然不控制真实电机，只验证多车通信和协同指令分发闭环。
+
+## 第 4 步：编队任务与角色分配
+
+目标效果：
+
+- 后端生成一个 `formation_id`。
+- 第一台车被分配为 `leader`，后续车辆被分配为 `follower`。
+- 每台车收到 `set_formation` 后 ACK，并在状态上报中携带 `formation_id`、`formation_role` 和 `formation_slot`。
+
+保持两台 agent 运行后执行：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001", "robot_002")
+  formation_type = "line"
+  mode = "patrol"
+  spacing_m = 1.2
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/formations" -ContentType "application/json" -Body $body
+```
+
+预期返回一个 `formation_id` 和两条命令。等待 1 秒后查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/robots
+```
+
+预期：
+
+```json
+[
+  {
+    "robot_code": "robot_001",
+    "mode": "patrol",
+    "formation_role": "leader",
+    "formation_slot": 0
+  },
+  {
+    "robot_code": "robot_002",
+    "mode": "patrol",
+    "formation_role": "follower",
+    "formation_slot": 1
+  }
+]
+```
+
+这一步仍是通信层和协同状态层，不直接让车运动。真正接入运动控制时，可以让 `leader` 执行导航/巡检目标，`follower` 根据 `offset_x/offset_y` 做跟随。

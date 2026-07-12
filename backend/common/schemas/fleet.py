@@ -21,6 +21,9 @@ class FleetRobotSnapshot(BaseModel):
     pose_y: Optional[float] = None
     pose_yaw: Optional[float] = None
     map_name: Optional[str] = None
+    formation_id: Optional[str] = None
+    formation_role: Optional[str] = None
+    formation_slot: Optional[int] = None
     last_seen_at: Optional[datetime] = None
     updated_at: datetime
     last_message_type: Optional[str] = None
@@ -56,4 +59,17 @@ class FleetCommandSnapshot(BaseModel):
 
 
 class FleetBatchCommandResponse(BaseModel):
+    commands: list[FleetCommandSnapshot]
+
+
+class FleetFormationRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=50)
+    formation_type: str = Field("line", min_length=1, max_length=32)
+    mode: str = Field("patrol", min_length=1, max_length=32)
+    spacing_m: float = Field(1.0, ge=0.0, le=20.0)
+
+
+class FleetFormationResponse(BaseModel):
+    formation_id: str
+    formation_type: str
     commands: list[FleetCommandSnapshot]
