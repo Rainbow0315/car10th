@@ -611,28 +611,7 @@ class MockRepository implements Repository {
       ),
     ]);
 
-    for (var i = 0; i < 18; i++) {
-      final type = AlarmType.values[i % AlarmType.values.length];
-      final risk = RiskLevel.values[_rng.nextInt(RiskLevel.values.length)];
-      final status = i % 4 == 0 ? AlarmStatus.handled : AlarmStatus.unhandled;
-      _alarms.add(
-        AlarmEvent(
-          id: 'al_${i + 1}',
-          type: type,
-          risk: risk,
-          status: status,
-          confidence: 0.6 + _rng.nextDouble() * 0.39,
-          timestamp: DateTime.now().subtract(Duration(minutes: i * 17)),
-          point: MapPoint(
-            x: _rng.nextDouble() * 12,
-            y: _rng.nextDouble() * 12,
-            yaw: _rng.nextDouble() * pi,
-          ),
-          imagePath: 'assets/mock_alarm.png',
-          remark: status == AlarmStatus.handled ? '已安排清理/复检' : null,
-        ),
-      );
-    }
+    _alarms.clear();
   }
 
   Future<T> _delay<T>(T value) async {
