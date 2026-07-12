@@ -18,6 +18,8 @@ from common.schemas.fleet import (
     FleetFormationRequest,
     FleetFormationResponse,
     FleetFormationSnapshot,
+    FleetReadinessRequest,
+    FleetReadinessResponse,
     FleetRobotListResponse,
     FleetRobotSnapshot,
     FleetSummaryResponse,
@@ -43,6 +45,21 @@ def list_fleet_robots():
 @router.get("/robots/{robot_code}", response_model=FleetRobotSnapshot, summary="Get fleet robot")
 def get_fleet_robot(robot_code: str):
     return FleetRobotSnapshot.model_validate(fleet_service.get_robot(robot_code))
+
+
+@router.post(
+    "/readiness",
+    response_model=FleetReadinessResponse,
+    summary="Check whether robots are ready for fleet commands",
+)
+def check_fleet_readiness(request: FleetReadinessRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+    return FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes))
 
 
 @router.post(

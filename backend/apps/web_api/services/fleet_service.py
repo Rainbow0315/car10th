@@ -71,6 +71,44 @@ class FleetService:
                 return self._with_liveness(self._empty_robot(robot_code, self._now()))
             return self._with_liveness(dict(current))
 
+    def check_readiness(self, robot_codes: List[str]) -> Dict[str, Any]:
+        with self._lock:
+            members = []
+            for robot_code in robot_codes:
+                current = self._robots.get(robot_code)
+                robot = self._with_liveness(
+                    dict(current) if current is not None else self._empty_robot(robot_code, self._now())
+                )
+                status = str(robot.get("status") or "offline")
+                online = status == "online"
+                ready_to_command = online
+                reason = None
+                if status == "offline":
+                    reason = "robot is offline or has not reported heartbeat"
+                elif status == "error":
+                    ready_to_command = False
+                    reason = "robot reported error status"
+                elif status != "online":
+                    ready_to_command = False
+                    reason = f"robot status is {status}"
+                members.append(
+                    {
+                        "robot_code": robot_code,
+                        "status": status if status in {"online", "offline", "error"} else "error",
+                        "online": online,
+                        "ready_to_command": ready_to_command,
+                        "reason": reason,
+                        "robot": robot,
+                    }
+                )
+            return {
+                "all_ready": bool(members) and all(member["ready_to_command"] for member in members),
+                "total_robots": len(members),
+                "ready_robots": sum(1 for member in members if member["ready_to_command"]),
+                "members": members,
+                "offline_after_sec": settings.fleet_robot_offline_sec,
+            }
+
     def create_command(
         self,
         robot_code: str,

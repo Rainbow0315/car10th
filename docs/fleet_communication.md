@@ -404,3 +404,48 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?status=acked&limit=20"
 ```
 
 这个接口适合真机调试时持续观察“命令是否发出、是否被小车确认、是否超时”。
+
+## 第 10 步：协同任务前置检查接口
+
+目标效果：
+
+- 编队或批量命令下发前，先检查目标车辆是否在线。
+- 快速识别某台车离线、未上报心跳或处于 error 状态。
+- 避免协同任务发出去后才发现某个成员没有响应。
+
+检查一台在线车和一台不存在的车：
+
+```powershell
+$body = @{ robot_codes = @("robot_001", "robot_missing") } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/readiness" -ContentType "application/json" -Body $body
+```
+
+预期核心字段：
+
+```json
+{
+  "all_ready": false,
+  "total_robots": 2,
+  "ready_robots": 1,
+  "members": [
+    {
+      "robot_code": "robot_001",
+      "ready_to_command": true
+    },
+    {
+      "robot_code": "robot_missing",
+      "ready_to_command": false,
+      "reason": "robot is offline or has not reported heartbeat"
+    }
+  ]
+}
+```
+
+只检查当前真机：
+
+```powershell
+$body = @{ robot_codes = @("robot_001") } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/readiness" -ContentType "application/json" -Body $body
+```
+
+如果小车在线，预期 `all_ready=true`、`ready_robots=1`。

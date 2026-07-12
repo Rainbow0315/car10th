@@ -38,6 +38,27 @@ class FleetRobotListResponse(BaseModel):
     offline_after_sec: int
 
 
+class FleetReadinessRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=50)
+
+
+class FleetReadinessMember(BaseModel):
+    robot_code: str
+    status: FleetRobotStatus
+    online: bool
+    ready_to_command: bool
+    reason: Optional[str] = None
+    robot: FleetRobotSnapshot
+
+
+class FleetReadinessResponse(BaseModel):
+    all_ready: bool
+    total_robots: int
+    ready_robots: int
+    members: list[FleetReadinessMember]
+    offline_after_sec: int
+
+
 class FleetSummaryResponse(BaseModel):
     generated_at: datetime
     total_robots: int
