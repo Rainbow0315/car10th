@@ -152,6 +152,53 @@ class FleetService:
             self._refresh_command_timeouts()
             return self._formation_snapshot(current)
 
+    def get_summary(self) -> Dict[str, Any]:
+        with self._lock:
+            self._refresh_command_timeouts()
+            robots = [self._with_liveness(dict(item)) for item in self._robots.values()]
+            commands = list(self._commands.values())
+            formations = [self._formation_snapshot(item) for item in self._formations.values()]
+
+            robot_status_count = {
+                "online": 0,
+                "offline": 0,
+                "error": 0,
+            }
+            for robot in robots:
+                status = str(robot.get("status") or "offline")
+                if status not in robot_status_count:
+                    status = "error"
+                robot_status_count[status] += 1
+
+            command_status_count = {
+                "pending": 0,
+                "published": 0,
+                "acked": 0,
+                "failed": 0,
+                "timeout": 0,
+            }
+            for command in commands:
+                status = str(command.get("status") or "pending")
+                if status not in command_status_count:
+                    status = "failed"
+                command_status_count[status] += 1
+
+            return {
+                "generated_at": self._now(),
+                "total_robots": len(robots),
+                "online_robots": robot_status_count["online"],
+                "offline_robots": robot_status_count["offline"],
+                "error_robots": robot_status_count["error"],
+                "total_commands": len(commands),
+                "pending_commands": command_status_count["pending"],
+                "published_commands": command_status_count["published"],
+                "acked_commands": command_status_count["acked"],
+                "failed_commands": command_status_count["failed"],
+                "timeout_commands": command_status_count["timeout"],
+                "total_formations": len(formations),
+                "ready_formations": sum(1 for item in formations if item.get("ready")),
+            }
+
     def parse_robot_topic(self, topic: str) -> Optional[tuple[str, str]]:
         match = ROBOT_TOPIC_PATTERN.match(topic)
         if match is None:

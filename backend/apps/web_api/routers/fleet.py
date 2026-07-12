@@ -18,9 +18,15 @@ from common.schemas.fleet import (
     FleetFormationSnapshot,
     FleetRobotListResponse,
     FleetRobotSnapshot,
+    FleetSummaryResponse,
 )
 
 router = APIRouter()
+
+
+@router.get("/summary", response_model=FleetSummaryResponse, summary="Get fleet summary")
+def get_fleet_summary():
+    return FleetSummaryResponse.model_validate(fleet_service.get_summary())
 
 
 @router.get("/robots", response_model=FleetRobotListResponse, summary="List fleet robots")

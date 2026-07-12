@@ -329,3 +329,34 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands/$($result.command_id)"
   "error": "ACK timeout after 5s"
 }
 ```
+
+## 第 8 步：车队总览接口
+
+目标效果：
+
+- 一次查询看到车辆在线/离线数量。
+- 一次查询看到命令 ACK、失败、超时数量。
+- 一次查询看到编队总数和 ready 编队数量。
+
+查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/summary
+```
+
+预期核心字段：
+
+```json
+{
+  "total_robots": 2,
+  "online_robots": 1,
+  "offline_robots": 1,
+  "total_commands": 3,
+  "acked_commands": 2,
+  "timeout_commands": 1,
+  "total_formations": 1,
+  "ready_formations": 0
+}
+```
+
+这个接口适合做调试面板或移动端首页的车队健康概览。

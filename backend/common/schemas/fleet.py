@@ -38,6 +38,22 @@ class FleetRobotListResponse(BaseModel):
     offline_after_sec: int
 
 
+class FleetSummaryResponse(BaseModel):
+    generated_at: datetime
+    total_robots: int
+    online_robots: int
+    offline_robots: int
+    error_robots: int
+    total_commands: int
+    pending_commands: int
+    published_commands: int
+    acked_commands: int
+    failed_commands: int
+    timeout_commands: int
+    total_formations: int
+    ready_formations: int
+
+
 class FleetCommandRequest(BaseModel):
     command: str = Field(..., min_length=1, max_length=64)
     payload: Dict[str, Any] = Field(default_factory=dict)
