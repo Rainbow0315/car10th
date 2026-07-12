@@ -7,9 +7,10 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from apps.web_api.services.fleet_service import fleet_service
 from apps.web_api.services.robot_service import robot_service
 from common.config.settings import settings
-from common.mqtt import APP_CONTROL_SUBSCRIBE, ALARM_NOTIFY, mqtt_manager, robot_status_topic
+from common.mqtt import APP_CONTROL_SUBSCRIBE, ROBOT_UPLINK_SUBSCRIBE, ALARM_NOTIFY, mqtt_manager, robot_status_topic
 from common.schemas.robot import AlarmNotifyPayload, MqttHealthResponse, RobotControlRequest, RobotStatusPayload
 from common.utils.operation_log import write_operation_log
 
@@ -22,7 +23,7 @@ class MqttService:
 
     def start(self) -> None:
         mqtt_manager.set_message_handler(self.handle_message)
-        mqtt_manager.start(subscribe_topics=[APP_CONTROL_SUBSCRIBE])
+        mqtt_manager.start(subscribe_topics=[APP_CONTROL_SUBSCRIBE, ROBOT_UPLINK_SUBSCRIBE])
         logger.info("MQTT service started")
 
     async def start_heartbeat(self) -> None:
@@ -50,6 +51,15 @@ class MqttService:
         )
 
     def handle_message(self, topic: str, payload: Dict[str, Any]) -> None:
+        fleet_result = fleet_service.handle_robot_message(topic, payload)
+        if fleet_result is not None:
+            logger.info(
+                "Fleet robot message handled: %s -> %s",
+                topic,
+                fleet_result.get("status"),
+            )
+            return
+
         robot_code = robot_service.parse_control_topic(topic)
         if robot_code is None:
             logger.warning("Ignored MQTT topic: %s", topic)

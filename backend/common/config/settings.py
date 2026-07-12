@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     mqtt_status_interval_sec: int = 2
     mqtt_app_username: str = "parking_app"
     mqtt_app_password: str = "parking_app_dev"
+    mqtt_robot_username: str = "parking_robot"
+    mqtt_robot_password: str = "parking_robot_dev"
+
+    robot_code: str = "robot_001"
+    robot_agent_status_interval_sec: int = 2
+    fleet_robot_offline_sec: int = 10
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
     ros_bridge_http_url: str = "http://127.0.0.1:8001"

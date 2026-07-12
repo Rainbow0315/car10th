@@ -7,6 +7,7 @@ robot_ws/log/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/.env
+backend/.run/
 backend/capture_img/*
 !backend/capture_img/.gitkeep
 backend/.venv/
