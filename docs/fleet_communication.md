@@ -840,3 +840,71 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 如果车端 `ros_bridge` 和底盘都就绪，预期 `hazard_avoid` 最终 `status=acked`，车辆短时低速弧线绕行；如果未就绪，预期 `status=failed` 并带运动链路错误原因。
+
+## 第 19 步：地下单车道分时放行
+
+场景故事：
+
+大型工业园区地下空间里，B2 设备间、坡道和单车道通廊不能让多车同时起步，否则容易在拐角、坡口或障碍后方堆叠。调度端需要把同一个“慢行通过”任务拆成多个时间槽：第 1 台立即通过，第 2 台延迟几秒启动，第 3 台继续延迟，形成可解释的“地下单车道分时放行”。
+
+目标效果：
+
+- `/api/fleet/corridor/crawl` 保持原接口不变，新增可选参数 `start_interval_sec`。
+- 后端按 `robot_codes` 顺序计算每台车的 `slot_index` 和 `start_delay_sec`。
+- payload 带上 `traffic_rule=staggered_single_lane_passage` 和 `schedule`，每台车知道自己什么时候启动。
+- 车端 dev 版本收到 `corridor_crawl` 后，会先等待 `schedule.start_delay_sec`，再通过本地 `ros_bridge` 执行低速 `/cmd_vel`。
+- 单车真机测试时可以把 `start_interval_sec` 设为 `0` 或较小值；多车演示时把它设为 `1.0 ~ 3.0` 秒，观察车辆按队列启动。
+
+安全参数限制：
+
+- `start_interval_sec` 范围：`0.0 ~ 5.0 s`
+- 车端实际执行延迟会被限制在 `0.0 ~ 10.0 s`
+- 运动速度仍沿用第 16 步限制：`linear_x=0.0 ~ 0.12 m/s`，`duration=0.2 ~ 3.0 s`
+
+单车真机安全测试：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001")
+  corridor_id = "B2-single-lane-gate-A"
+  linear_x = 0.06
+  duration = 1.0
+  spacing_m = 1.0
+  start_interval_sec = 0.5
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/corridor/crawl" -ContentType "application/json" -Body $body
+```
+
+预期返回中包含调度计划：
+
+```json
+{
+  "corridor_id": "B2-single-lane-gate-A",
+  "start_interval_sec": 0.5,
+  "schedule": [
+    {
+      "robot_code": "robot_001",
+      "slot_index": 0,
+      "start_delay_sec": 0.0
+    }
+  ]
+}
+```
+
+多车演示时：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001", "robot_002", "robot_003")
+  corridor_id = "B2-single-lane-gate-A"
+  linear_x = 0.06
+  duration = 1.0
+  spacing_m = 1.2
+  start_interval_sec = 1.5
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+```
+
+预期 `schedule` 分别给出 `0.0s`、`1.5s`、`3.0s` 的启动延迟。真机部署 dev 版本后，车端会按自己的时间槽等待并运动；如果 `ros_bridge` 未就绪，仍会返回 `failed` 和明确原因，便于调试。

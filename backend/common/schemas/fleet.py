@@ -179,12 +179,21 @@ class FleetCorridorCrawlRequest(BaseModel):
     linear_x: float = Field(0.06, ge=0.0, le=0.12)
     duration: float = Field(1.0, ge=0.2, le=3.0)
     spacing_m: float = Field(1.0, ge=0.3, le=5.0)
+    start_interval_sec: float = Field(0.0, ge=0.0, le=5.0)
     require_all_ready: bool = True
+
+
+class FleetCorridorCrawlSlot(BaseModel):
+    robot_code: str
+    slot_index: int
+    start_delay_sec: float
 
 
 class FleetCorridorCrawlResponse(BaseModel):
     corridor_id: Optional[str] = None
     robot_codes: list[str]
+    start_interval_sec: float
+    schedule: list[FleetCorridorCrawlSlot]
     commands: list[FleetCommandSnapshot]
 
 

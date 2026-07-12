@@ -301,7 +301,16 @@ def dispatch_corridor_crawl(request: FleetCorridorCrawlRequest):
         )
     _ensure_fleet_ready(robot_codes, request.require_all_ready)
     commands = []
+    schedule = []
     for slot_index, robot_code in enumerate(robot_codes):
+        start_delay_sec = round(slot_index * request.start_interval_sec, 3)
+        schedule.append(
+            {
+                "robot_code": robot_code,
+                "slot_index": slot_index,
+                "start_delay_sec": start_delay_sec,
+            }
+        )
         command = _publish_fleet_command(
             robot_code,
             "corridor_crawl",
@@ -309,6 +318,11 @@ def dispatch_corridor_crawl(request: FleetCorridorCrawlRequest):
                 "corridor_id": request.corridor_id,
                 "slot_index": slot_index,
                 "spacing_m": request.spacing_m,
+                "traffic_rule": "staggered_single_lane_passage",
+                "schedule": {
+                    "start_delay_sec": start_delay_sec,
+                    "start_interval_sec": request.start_interval_sec,
+                },
                 "motion": {
                     "linear_x": request.linear_x,
                     "linear_y": 0.0,
@@ -322,6 +336,8 @@ def dispatch_corridor_crawl(request: FleetCorridorCrawlRequest):
     return FleetCorridorCrawlResponse(
         corridor_id=request.corridor_id,
         robot_codes=robot_codes,
+        start_interval_sec=request.start_interval_sec,
+        schedule=schedule,
         commands=commands,
     )
 

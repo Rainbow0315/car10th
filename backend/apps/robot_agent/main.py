@@ -331,8 +331,22 @@ class RobotAgent:
             "rate_hz": self._float_in_range(motion.get("rate_hz"), 10.0, 1.0, 15.0),
             "wait_for_subscriber_timeout": 1.0,
         }
+        schedule = payload.get("schedule", {})
+        if not isinstance(schedule, dict):
+            schedule = {}
+        start_delay_sec = self._float_in_range(
+            schedule.get("start_delay_sec"),
+            0.0,
+            0.0,
+            10.0,
+        )
         if self.dry_run:
-            return {"ok": True, "detail": f"dry-run {action_name} accepted: {command}"}
+            return {
+                "ok": True,
+                "detail": f"dry-run {action_name} accepted after {start_delay_sec}s delay: {command}",
+            }
+        if start_delay_sec > 0 and self.stop_event.wait(start_delay_sec):
+            return {"ok": False, "detail": f"{action_name} cancelled before scheduled start"}
         url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/cmd-vel"
         try:
             with httpx.Client(timeout=command["duration"] + 3.0) as client:
