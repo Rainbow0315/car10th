@@ -28,6 +28,8 @@ class RobotAgent:
         self.formation_slot: int | None = None
         self.rescue_incident_id: str | None = None
         self.rescue_target_robot_code: str | None = None
+        self.escort_mission_id: str | None = None
+        self.escort_target_robot_code: str | None = None
         self.hostname = socket.gethostname()
         self.agent_version = self._load_deployed_commit()
         self.stop_event = Event()
@@ -96,6 +98,8 @@ class RobotAgent:
                 "formation_slot": self.formation_slot,
                 "rescue_incident_id": self.rescue_incident_id,
                 "rescue_target_robot_code": self.rescue_target_robot_code,
+                "escort_mission_id": self.escort_mission_id,
+                "escort_target_robot_code": self.escort_target_robot_code,
                 "timestamp": self._now_iso(),
             },
         )
@@ -289,6 +293,27 @@ class RobotAgent:
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
+        elif command == "escort_return":
+            self.mode = "follow"
+            self.escort_mission_id = str(command_payload.get("mission_id") or "").strip() or None
+            self.escort_target_robot_code = (
+                str(command_payload.get("target_robot_code") or "").strip() or None
+            )
+            motion_result = self._execute_limited_motion(
+                command_payload,
+                action_name="escort return",
+                linear_fallback=0.05,
+                linear_lower=0.0,
+                linear_upper=0.1,
+                angular_fallback=0.0,
+                angular_lower=-0.3,
+                angular_upper=0.3,
+                duration_fallback=1.0,
+                duration_lower=0.2,
+                duration_upper=3.0,
+            )
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
 
         self._publish(
             robot_ack_topic(self.robot_code),
@@ -300,6 +325,8 @@ class RobotAgent:
                 "detail": detail,
                 "rescue_incident_id": self.rescue_incident_id,
                 "rescue_target_robot_code": self.rescue_target_robot_code,
+                "escort_mission_id": self.escort_mission_id,
+                "escort_target_robot_code": self.escort_target_robot_code,
                 "dry_run": self.dry_run,
                 "timestamp": self._now_iso(),
             },

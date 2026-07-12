@@ -55,6 +55,10 @@ class FleetService:
             current["rescue_target_robot_code"] = (
                 payload.get("rescue_target_robot_code") or current.get("rescue_target_robot_code")
             )
+            current["escort_mission_id"] = payload.get("escort_mission_id") or current.get("escort_mission_id")
+            current["escort_target_robot_code"] = (
+                payload.get("escort_target_robot_code") or current.get("escort_target_robot_code")
+            )
             current["last_seen_at"] = now
             current["updated_at"] = now
             current["last_message_type"] = message_type
@@ -296,6 +300,8 @@ class FleetService:
             "formation_slot": None,
             "rescue_incident_id": None,
             "rescue_target_robot_code": None,
+            "escort_mission_id": None,
+            "escort_target_robot_code": None,
             "last_seen_at": None,
             "updated_at": now,
             "last_message_type": None,

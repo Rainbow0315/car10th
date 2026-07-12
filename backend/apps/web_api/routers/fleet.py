@@ -18,6 +18,8 @@ from common.schemas.fleet import (
     FleetCorridorCrawlResponse,
     FleetCorridorYieldRequest,
     FleetCorridorYieldResponse,
+    FleetEscortReturnRequest,
+    FleetEscortReturnResponse,
     FleetFormationListResponse,
     FleetFormationRequest,
     FleetFormationResponse,
@@ -438,6 +440,64 @@ def dispatch_hazard_avoidance(request: FleetHazardAvoidanceRequest):
         reported_by_robot_code=request.reported_by_robot_code,
         avoid_direction=request.avoid_direction,
         commands=commands,
+    )
+
+
+@router.post(
+    "/escort/return",
+    response_model=FleetEscortReturnResponse,
+    summary="Dispatch one robot to escort a low-battery or faulty robot back",
+)
+def dispatch_escort_return(request: FleetEscortReturnRequest):
+    target_robot_code = request.target_robot_code.strip()
+    escort_robot_code = request.escort_robot_code.strip()
+    if target_robot_code == escort_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="escort_robot_code must be different from target_robot_code",
+        )
+    _ensure_fleet_ready([escort_robot_code], request.require_escort_ready)
+    mission_id = uuid.uuid4().hex
+    target_robot = fleet_service.get_robot(target_robot_code)
+    command = _publish_fleet_command(
+        escort_robot_code,
+        "escort_return",
+        {
+            "mission_id": mission_id,
+            "target_robot_code": target_robot_code,
+            "maintenance_zone_id": request.maintenance_zone_id,
+            "target_plate_number": request.target_plate_number,
+            "recognition_confidence": request.recognition_confidence,
+            "escort_position": request.escort_position,
+            "reason": request.reason,
+            "target_pose": {
+                "x": target_robot.get("pose_x"),
+                "y": target_robot.get("pose_y"),
+                "yaw": target_robot.get("pose_yaw"),
+                "map_name": target_robot.get("map_name"),
+            },
+            "motion": {
+                "linear_x": request.linear_x,
+                "linear_y": 0.0,
+                "angular_z": request.angular_z,
+                "duration": request.duration,
+                "rate_hz": 10.0,
+            },
+        },
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetEscortReturnResponse(
+        mission_id=mission_id,
+        target_robot_code=target_robot_code,
+        escort_robot_code=escort_robot_code,
+        maintenance_zone_id=request.maintenance_zone_id,
+        target_plate_number=request.target_plate_number,
+        recognition_confidence=request.recognition_confidence,
+        command=FleetCommandSnapshot.model_validate(command),
     )
 
 

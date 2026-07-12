@@ -29,6 +29,8 @@ class FleetRobotSnapshot(BaseModel):
     formation_slot: Optional[int] = None
     rescue_incident_id: Optional[str] = None
     rescue_target_robot_code: Optional[str] = None
+    escort_mission_id: Optional[str] = None
+    escort_target_robot_code: Optional[str] = None
     last_seen_at: Optional[datetime] = None
     updated_at: datetime
     last_message_type: Optional[str] = None
@@ -232,6 +234,30 @@ class FleetHazardAvoidanceResponse(BaseModel):
     reported_by_robot_code: Optional[str] = None
     avoid_direction: Literal["left", "right"]
     commands: list[FleetCommandSnapshot]
+
+
+class FleetEscortReturnRequest(BaseModel):
+    target_robot_code: str = Field(..., min_length=1, max_length=32)
+    escort_robot_code: str = Field(..., min_length=1, max_length=32)
+    maintenance_zone_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    target_plate_number: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    recognition_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    reason: str = Field("low battery or fault escort return", min_length=1, max_length=128)
+    escort_position: Literal["rear", "left", "right"] = "rear"
+    linear_x: float = Field(0.05, ge=0.0, le=0.1)
+    angular_z: float = Field(0.0, ge=-0.3, le=0.3)
+    duration: float = Field(1.0, ge=0.2, le=3.0)
+    require_escort_ready: bool = True
+
+
+class FleetEscortReturnResponse(BaseModel):
+    mission_id: str
+    target_robot_code: str
+    escort_robot_code: str
+    maintenance_zone_id: Optional[str] = None
+    target_plate_number: Optional[str] = None
+    recognition_confidence: Optional[float] = None
+    command: FleetCommandSnapshot
 
 
 class FleetFormationRequest(BaseModel):

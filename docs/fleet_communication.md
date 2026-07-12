@@ -908,3 +908,69 @@ $body = @{
 ```
 
 预期 `schedule` 分别给出 `0.0s`、`1.5s`、`3.0s` 的启动延迟。真机部署 dev 版本后，车端会按自己的时间槽等待并运动；如果 `ros_bridge` 未就绪，仍会返回 `failed` 和明确原因，便于调试。
+
+## 第 20 步：低电量/故障车护送返航
+
+场景故事：
+
+大型工业园区地下空间里，某台车可能因为低电量、底盘异常或长时间滞留而无法独立完成任务。巡检车或摄像头可以先通过视觉模型识别目标车辆车牌，再由调度端派另一台在线车辆作为护送车，低速跟随故障车或引导它返回维护区。这个功能可以讲成“发现异常车辆 -> 识别车辆身份 -> 派车护送返航 -> 必要时进入维修区”。
+
+目标效果：
+
+- 后端通过 `/api/fleet/escort/return` 创建一次护送返航任务。
+- 请求中指定 `target_robot_code` 和 `escort_robot_code`，两台车不能相同。
+- payload 可携带 `target_plate_number` 和 `recognition_confidence`，用于承接车牌识别模型输出。
+- 后端向护送车下发 `escort_return` 命令，记录 `mission_id`、目标车、维护区和护送方位。
+- 车端 dev 版本收到 `escort_return` 后进入 `follow` 模式，并通过本地 `ros_bridge` 执行短时低速 `/cmd_vel`，后续可扩展为持续跟随或导航返航。
+- 车端状态上报会携带 `escort_mission_id` 和 `escort_target_robot_code`，便于调度面板显示“谁在护送谁”。
+
+安全参数限制：
+
+- `linear_x` 范围：`0.0 ~ 0.1 m/s`
+- `angular_z` 范围：`-0.3 ~ 0.3 rad/s`
+- `duration` 范围：`0.2 ~ 3.0 s`
+- `escort_position` 可选：`rear`、`left`、`right`
+
+单车真机链路测试：
+
+```powershell
+$body = @{
+  target_robot_code = "robot_low_battery_001"
+  escort_robot_code = "robot_001"
+  maintenance_zone_id = "B2-maintenance-bay-A"
+  target_plate_number = "沪A12345"
+  recognition_confidence = 0.96
+  reason = "B2区识别到低电量车辆，派robot_001低速护送返航"
+  escort_position = "rear"
+  linear_x = 0.05
+  angular_z = 0.0
+  duration = 1.0
+  require_escort_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/escort/return" -ContentType "application/json" -Body $body
+```
+
+预期返回：
+
+```json
+{
+  "target_robot_code": "robot_low_battery_001",
+  "escort_robot_code": "robot_001",
+  "maintenance_zone_id": "B2-maintenance-bay-A",
+  "target_plate_number": "沪A12345",
+  "recognition_confidence": 0.96,
+  "command": {
+    "command": "escort_return",
+    "status": "published"
+  }
+}
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果当前小车仍运行稳定 `main`，预期只能验证 MQTT `published -> acked` 闭环；等 dev 集成到 main 并部署到小车后，预期 `escort_return` 会真正触发低速短时跟随动作。如果车端 `ros_bridge` 未就绪，预期返回 `failed` 和运动链路错误原因。
