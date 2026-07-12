@@ -271,3 +271,30 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/formations
 ```
 
 停止任意一台 agent 并等待约 10 秒后，再查同一个 `formation_id`，预期 `ready` 变为 `false`，对应成员的 `robot.status` 变为 `offline`。
+
+## 第 6 步：车端部署版本可观测
+
+目标效果：
+
+- 小车 agent 状态上报携带 `agent_hostname`、`agent_ip` 和 `agent_version`。
+- `agent_version` 来自部署目录中的 `DEPLOYED_COMMIT`。
+- 后端 `/api/fleet/robots` 能直接看到每台车当前运行的是哪个部署提交。
+
+查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/robots
+```
+
+预期每台车状态中包含：
+
+```json
+{
+  "robot_code": "robot_001",
+  "agent_hostname": "jetson-desktop",
+  "agent_ip": "192.168.247.227",
+  "agent_version": "13b9ab6"
+}
+```
+
+这样可以快速判断“GitHub/部署机上的代码是否真的已经跑到对应小车上”。

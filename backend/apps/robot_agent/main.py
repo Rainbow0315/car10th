@@ -6,6 +6,7 @@ import signal
 import socket
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Event
 from typing import Any, Dict
 
@@ -24,6 +25,8 @@ class RobotAgent:
         self.formation_id: str | None = None
         self.formation_role: str | None = None
         self.formation_slot: int | None = None
+        self.hostname = socket.gethostname()
+        self.agent_version = self._load_deployed_commit()
         self.stop_event = Event()
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -66,7 +69,9 @@ class RobotAgent:
             {
                 "robot_code": self.robot_code,
                 "status": "online",
-                "hostname": socket.gethostname(),
+                "hostname": self.hostname,
+                "agent_version": self.agent_version,
+                "agent_ip": self._local_ip(),
                 "timestamp": self._now_iso(),
             },
         )
@@ -80,6 +85,9 @@ class RobotAgent:
                 "mode": mode or self.mode,
                 "battery": 100 if self.dry_run else 0,
                 "network_latency": 0,
+                "agent_hostname": self.hostname,
+                "agent_version": self.agent_version,
+                "agent_ip": self._local_ip(),
                 "formation_id": self.formation_id,
                 "formation_role": self.formation_role,
                 "formation_slot": self.formation_slot,
@@ -191,6 +199,25 @@ class RobotAgent:
     @staticmethod
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _load_deployed_commit() -> str | None:
+        for parent in Path(__file__).resolve().parents:
+            marker = parent / "DEPLOYED_COMMIT"
+            if marker.exists():
+                return marker.read_text(encoding="utf-8").strip() or None
+        return None
+
+    @staticmethod
+    def _local_ip() -> str | None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+        except OSError:
+            return None
+        finally:
+            sock.close()
 
 
 def parse_args() -> argparse.Namespace:

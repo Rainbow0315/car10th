@@ -21,6 +21,9 @@ class FleetRobotSnapshot(BaseModel):
     pose_y: Optional[float] = None
     pose_yaw: Optional[float] = None
     map_name: Optional[str] = None
+    agent_hostname: Optional[str] = None
+    agent_version: Optional[str] = None
+    agent_ip: Optional[str] = None
     formation_id: Optional[str] = None
     formation_role: Optional[str] = None
     formation_slot: Optional[int] = None
