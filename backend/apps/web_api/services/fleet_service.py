@@ -118,6 +118,7 @@ class FleetService:
             current = self._commands.get(command_id)
             if current is None:
                 return None
+            self._with_command_timeout(current)
             return dict(current)
 
     def register_formation(
@@ -140,6 +141,7 @@ class FleetService:
 
     def list_formations(self) -> List[Dict[str, Any]]:
         with self._lock:
+            self._refresh_command_timeouts()
             return [self._formation_snapshot(item) for item in self._formations.values()]
 
     def get_formation(self, formation_id: str) -> Optional[Dict[str, Any]]:
@@ -147,6 +149,7 @@ class FleetService:
             current = self._formations.get(formation_id)
             if current is None:
                 return None
+            self._refresh_command_timeouts()
             return self._formation_snapshot(current)
 
     def parse_robot_topic(self, topic: str) -> Optional[tuple[str, str]]:
@@ -202,6 +205,25 @@ class FleetService:
         current["ack"] = dict(payload)
         current["error"] = None if current["status"] == "acked" else payload.get("detail")
 
+    def _refresh_command_timeouts(self) -> None:
+        for command in self._commands.values():
+            self._with_command_timeout(command)
+
+    def _with_command_timeout(self, command: Dict[str, Any]) -> Dict[str, Any]:
+        if command.get("status") != "published":
+            return command
+
+        published_at = command.get("published_at")
+        if published_at is None:
+            return command
+
+        timeout_sec = max(1, settings.fleet_command_ack_timeout_sec)
+        deadline = self._now() - timedelta(seconds=timeout_sec)
+        if published_at < deadline:
+            command["status"] = "timeout"
+            command["error"] = f"ACK timeout after {timeout_sec}s"
+        return command
+
     def _formation_snapshot(self, formation: Dict[str, Any]) -> Dict[str, Any]:
         members = []
         online_robots = 0
@@ -209,7 +231,9 @@ class FleetService:
         for member in formation["members"]:
             robot_code = member["robot_code"]
             robot = self._with_liveness(dict(self._robots.get(robot_code) or self._empty_robot(robot_code, self._now())))
-            command = dict(self._commands.get(member["command_id"]) or {})
+            command_current = self._commands.get(member["command_id"]) or {}
+            self._with_command_timeout(command_current)
+            command = dict(command_current)
             command_status = command.get("status")
             robot_ready = (
                 robot.get("status") == "online"

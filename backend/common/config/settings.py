@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     robot_code: str = "robot_001"
     robot_agent_status_interval_sec: int = 2
     fleet_robot_offline_sec: int = 10
+    fleet_command_ack_timeout_sec: int = 5
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
     ros_bridge_http_url: str = "http://127.0.0.1:8001"

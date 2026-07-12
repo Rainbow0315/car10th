@@ -298,3 +298,34 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/robots
 ```
 
 这样可以快速判断“GitHub/部署机上的代码是否真的已经跑到对应小车上”。
+
+## 第 7 步：命令 ACK 超时判定
+
+目标效果：
+
+- 后端下发命令后，如果车端没有在 `FLEET_COMMAND_ACK_TIMEOUT_SEC` 秒内回 ACK，命令状态从 `published` 变为 `timeout`。
+- 多车编队中任意成员命令超时，编队 `ready` 保持 `false`。
+- 默认超时时间为 5 秒，可在 `backend/.env` 中调整：
+
+```env
+FLEET_COMMAND_ACK_TIMEOUT_SEC=5
+```
+
+测试方法：对一个不存在或未启动 agent 的车辆下发命令：
+
+```powershell
+$body = @{ command = "set_mode"; payload = @{ mode = "patrol" } } | ConvertTo-Json -Compress -Depth 5
+$result = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/robots/robot_missing/commands" -ContentType "application/json" -Body $body
+Start-Sleep -Seconds 6
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands/$($result.command_id)"
+```
+
+预期：
+
+```json
+{
+  "robot_code": "robot_missing",
+  "status": "timeout",
+  "error": "ACK timeout after 5s"
+}
+```

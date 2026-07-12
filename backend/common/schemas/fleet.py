@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 FleetRobotStatus = Literal["online", "offline", "error"]
 FleetRobotMode = Literal["idle", "teleop", "patrol", "follow", "busy"]
-FleetCommandStatus = Literal["pending", "published", "acked", "failed"]
+FleetCommandStatus = Literal["pending", "published", "acked", "failed", "timeout"]
 
 
 class FleetRobotSnapshot(BaseModel):
