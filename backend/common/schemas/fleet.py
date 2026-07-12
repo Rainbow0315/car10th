@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 FleetRobotStatus = Literal["online", "offline", "error"]
 FleetRobotMode = Literal["idle", "teleop", "patrol", "follow", "busy"]
+FleetCommandStatus = Literal["pending", "published", "acked", "failed"]
 
 
 class FleetRobotSnapshot(BaseModel):
@@ -29,3 +30,22 @@ class FleetRobotSnapshot(BaseModel):
 class FleetRobotListResponse(BaseModel):
     robots: list[FleetRobotSnapshot]
     offline_after_sec: int
+
+
+class FleetCommandRequest(BaseModel):
+    command: str = Field(..., min_length=1, max_length=64)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FleetCommandSnapshot(BaseModel):
+    command_id: str
+    robot_code: str
+    command: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    topic: str
+    status: FleetCommandStatus
+    issued_at: datetime
+    published_at: Optional[datetime] = None
+    acked_at: Optional[datetime] = None
+    ack: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None

@@ -95,3 +95,37 @@ MQTT_ROBOT_PASSWORD=parking_robot_dev
 ```
 
 第一步只验证通信在线，不要求小车运动。小车能在后端显示在线，就说明分布式通信底座已经跑通。
+
+## 第 2 步：后端下发命令与车端 ACK
+
+目标效果：
+
+- 后端通过 HTTP 接口向指定 `robot_code` 发布 `fleet/command/{robot_code}`。
+- 小车 `robot_agent` 收到命令后发布 `robot/{robot_code}/ack`。
+- 后端收到 ACK 后，可以通过 `command_id` 查询该命令是否已送达。
+
+本地 dry-run 测试时，保持后端和 agent 都在运行，然后执行：
+
+```powershell
+$body = '{"command":"set_mode","payload":{"mode":"patrol"}}'
+curl.exe -s -X POST http://127.0.0.1:8000/api/fleet/robots/robot_001/commands -H "Content-Type: application/json" -d $body
+```
+
+返回中会包含 `command_id`，例如：
+
+```json
+{
+  "command_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "robot_code": "robot_001",
+  "command": "set_mode",
+  "status": "published"
+}
+```
+
+等待 1 秒后查询 ACK：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/commands/<command_id>
+```
+
+预期 `status` 变为 `acked`，`ack.detail` 包含 agent 的处理结果。dry-run 模式只模拟模式变化，不会让真实小车运动；上车后可以先发 `stop` 或 `set_mode` 验证通信，再逐步接入 ROS2 控制。

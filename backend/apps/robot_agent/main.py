@@ -12,7 +12,7 @@ from typing import Any, Dict
 import paho.mqtt.client as mqtt
 
 from common.config.settings import settings
-from common.mqtt import robot_heartbeat_topic, robot_status_up_topic
+from common.mqtt import robot_ack_topic, robot_heartbeat_topic, robot_status_up_topic
 
 
 class RobotAgent:
@@ -20,6 +20,7 @@ class RobotAgent:
         self.robot_code = robot_code
         self.interval_sec = max(1, interval_sec)
         self.dry_run = dry_run
+        self.mode = "idle"
         self.stop_event = Event()
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -67,13 +68,13 @@ class RobotAgent:
             },
         )
 
-    def publish_status(self, status: str = "online", mode: str = "idle") -> None:
+    def publish_status(self, status: str = "online", mode: str | None = None) -> None:
         self._publish(
             robot_status_up_topic(self.robot_code),
             {
                 "robot_code": self.robot_code,
                 "status": status,
-                "mode": mode,
+                "mode": mode or self.mode,
                 "battery": 100 if self.dry_run else 0,
                 "network_latency": 0,
                 "timestamp": self._now_iso(),
@@ -129,6 +130,47 @@ class RobotAgent:
         except (UnicodeDecodeError, json.JSONDecodeError):
             payload = {"raw": message.payload.decode("utf-8", errors="replace")}
         print(f"received {message.topic}: {payload}")
+        self._handle_downlink(payload)
+
+    def _handle_downlink(self, payload: Dict[str, Any]) -> None:
+        command_id = str(payload.get("command_id") or "").strip()
+        command = str(payload.get("command") or "unknown").strip()
+        command_payload = payload.get("payload", {})
+        if not isinstance(command_payload, dict):
+            command_payload = {}
+
+        detail = "command received"
+        if command in {"stop", "emergency_stop"}:
+            self.mode = "idle"
+            detail = "stop accepted"
+        elif command in {"patrol_start", "start_patrol"}:
+            self.mode = "patrol"
+            detail = "patrol mode accepted"
+        elif command in {"follow_start", "start_follow"}:
+            self.mode = "follow"
+            detail = "follow mode accepted"
+        elif command in {"teleop", "cmd_vel"}:
+            self.mode = "teleop"
+            detail = "teleop command accepted"
+        elif command in {"set_mode", "mode"}:
+            requested_mode = str(command_payload.get("mode") or "").strip()
+            if requested_mode:
+                self.mode = requested_mode
+                detail = f"mode set to {requested_mode}"
+
+        self._publish(
+            robot_ack_topic(self.robot_code),
+            {
+                "robot_code": self.robot_code,
+                "command_id": command_id,
+                "command": command,
+                "status": "accepted",
+                "detail": detail,
+                "dry_run": self.dry_run,
+                "timestamp": self._now_iso(),
+            },
+        )
+        self.publish_status()
 
     @staticmethod
     def _now_iso() -> str:

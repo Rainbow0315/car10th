@@ -41,6 +41,10 @@ def robot_status_up_topic(robot_code: str) -> str:
     return ROBOT_STATUS_UP.format(robot_code=robot_code)
 
 
+def robot_ack_topic(robot_code: str) -> str:
+    return ROBOT_ACK_UP.format(robot_code=robot_code)
+
+
 def fleet_command_topic(robot_code: str) -> str:
     return FLEET_COMMAND.format(robot_code=robot_code)
 
