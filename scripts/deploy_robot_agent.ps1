@@ -58,11 +58,15 @@ function Invoke-Remote {
         [string]$Command,
         [switch]$Tty
     )
+    $Command = $Command -replace "`r`n", "`n"
+    $Command = $Command -replace "`r", "`n"
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command))
+    $remoteCommand = "printf '%s' '$encodedCommand' | base64 -d | bash"
     $sshArgs = New-SshArgs
     if ($Tty) {
         $sshArgs += @("-tt")
     }
-    $sshArgs += @("$RobotUser@$RobotHost", $Command)
+    $sshArgs += @("$RobotUser@$RobotHost", $remoteCommand)
     Invoke-Checked -FilePath "ssh" -Arguments $sshArgs
 }
 

@@ -60,7 +60,7 @@ sudo visudo -f /etc/sudoers.d/car10th-robot-agent
 
 - `<小车IP>`：小车 Ubuntu 的局域网 IP
 - `<小车用户名>`：小车 Ubuntu 用户名
-- `<电脑IP>`：运行 MQTT broker 的 Windows IP，例如 `10.61.139.183`
+- `<电脑IP>`：运行 MQTT broker 且小车能访问到的 Windows IP，例如本次真机测试中小车 `192.168.247.227` 同网段的 `192.168.247.64`
 
 ```powershell
 cd F:\SHIXUN\car10th
@@ -143,6 +143,8 @@ ping -c 4 <电脑IP>
 nc -vz <电脑IP> 1883
 curl http://<电脑IP>:8000/health
 ```
+
+说明：Windows 防火墙可能禁止 ICMP，所以 `ping` 不通不一定代表失败。以 `nc -vz <电脑IP> 1883` 和 `curl http://<电脑IP>:8000/health` 能否成功作为主要判断依据。
 
 预期后端返回：
 
