@@ -73,3 +73,30 @@ class FleetFormationResponse(BaseModel):
     formation_id: str
     formation_type: str
     commands: list[FleetCommandSnapshot]
+
+
+class FleetFormationMemberSnapshot(BaseModel):
+    robot_code: str
+    role: str
+    slot_index: int
+    offset_x: float
+    offset_y: float
+    command: FleetCommandSnapshot
+    robot: FleetRobotSnapshot
+    ready: bool
+
+
+class FleetFormationSnapshot(BaseModel):
+    formation_id: str
+    formation_type: str
+    mode: str
+    created_at: datetime
+    total_robots: int
+    online_robots: int
+    acked_commands: int
+    ready: bool
+    members: list[FleetFormationMemberSnapshot]
+
+
+class FleetFormationListResponse(BaseModel):
+    formations: list[FleetFormationSnapshot]

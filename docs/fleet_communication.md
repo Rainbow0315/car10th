@@ -226,3 +226,48 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/robots
 ```
 
 这一步仍是通信层和协同状态层，不直接让车运动。真正接入运动控制时，可以让 `leader` 执行导航/巡检目标，`follower` 根据 `offset_x/offset_y` 做跟随。
+
+## 第 5 步：编队就绪状态聚合
+
+目标效果：
+
+- 创建编队后，后端保存 `formation_id` 和每台车的角色、槽位、命令 ID。
+- 查询编队详情时，可以看到每台车是否在线、是否 ACK、角色是否匹配。
+- 只有所有成员都在线、命令都 ACK、上报角色/槽位都匹配时，编队 `ready` 才为 `true`。
+
+创建编队后，用返回的 `formation_id` 查询：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/formations/<formation_id>
+```
+
+也可以列出当前后端内存中的所有编队：
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/fleet/formations
+```
+
+预期核心字段：
+
+```json
+{
+  "ready": true,
+  "total_robots": 2,
+  "online_robots": 2,
+  "acked_commands": 2,
+  "members": [
+    {
+      "robot_code": "robot_001",
+      "role": "leader",
+      "ready": true
+    },
+    {
+      "robot_code": "robot_002",
+      "role": "follower",
+      "ready": true
+    }
+  ]
+}
+```
+
+停止任意一台 agent 并等待约 10 秒后，再查同一个 `formation_id`，预期 `ready` 变为 `false`，对应成员的 `robot.status` 变为 `offline`。

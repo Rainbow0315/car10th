@@ -12,8 +12,10 @@ from common.schemas.fleet import (
     FleetBatchCommandResponse,
     FleetCommandRequest,
     FleetCommandSnapshot,
+    FleetFormationListResponse,
     FleetFormationRequest,
     FleetFormationResponse,
+    FleetFormationSnapshot,
     FleetRobotListResponse,
     FleetRobotSnapshot,
 )
@@ -86,6 +88,7 @@ def create_fleet_formation(request: FleetFormationRequest):
 
     formation_id = uuid.uuid4().hex
     commands = []
+    members = []
     for slot_index, robot_code in enumerate(robot_codes):
         role = "leader" if slot_index == 0 else "follower"
         payload = {
@@ -97,20 +100,62 @@ def create_fleet_formation(request: FleetFormationRequest):
             "offset_y": 0.0,
             "mode": request.mode,
         }
-        commands.append(
-            FleetCommandSnapshot.model_validate(
-                _publish_fleet_command(
-                    robot_code,
-                    "set_formation",
-                    payload,
-                )
-            )
+        command = _publish_fleet_command(
+            robot_code,
+            "set_formation",
+            payload,
         )
+        commands.append(FleetCommandSnapshot.model_validate(command))
+        members.append(
+            {
+                "robot_code": robot_code,
+                "role": role,
+                "slot_index": slot_index,
+                "offset_x": payload["offset_x"],
+                "offset_y": payload["offset_y"],
+                "command_id": command["command_id"],
+            }
+        )
+    fleet_service.register_formation(
+        formation_id=formation_id,
+        formation_type=request.formation_type,
+        mode=request.mode,
+        members=members,
+    )
     return FleetFormationResponse(
         formation_id=formation_id,
         formation_type=request.formation_type,
         commands=commands,
     )
+
+
+@router.get(
+    "/formations",
+    response_model=FleetFormationListResponse,
+    summary="List fleet formations with readiness",
+)
+def list_fleet_formations():
+    return FleetFormationListResponse(
+        formations=[
+            FleetFormationSnapshot.model_validate(item)
+            for item in fleet_service.list_formations()
+        ]
+    )
+
+
+@router.get(
+    "/formations/{formation_id}",
+    response_model=FleetFormationSnapshot,
+    summary="Get fleet formation readiness",
+)
+def get_fleet_formation(formation_id: str):
+    formation = fleet_service.get_formation(formation_id)
+    if formation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="formation not found",
+        )
+    return FleetFormationSnapshot.model_validate(formation)
 
 
 def _unique_robot_codes(robot_codes: list[str]) -> list[str]:

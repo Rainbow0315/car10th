@@ -17,6 +17,7 @@ class FleetService:
         self._lock = Lock()
         self._robots: Dict[str, Dict[str, Any]] = {}
         self._commands: Dict[str, Dict[str, Any]] = {}
+        self._formations: Dict[str, Dict[str, Any]] = {}
 
     def handle_robot_message(self, topic: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         parsed = self.parse_robot_topic(topic)
@@ -116,6 +117,35 @@ class FleetService:
                 return None
             return dict(current)
 
+    def register_formation(
+        self,
+        formation_id: str,
+        formation_type: str,
+        mode: str,
+        members: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        item = {
+            "formation_id": formation_id,
+            "formation_type": formation_type,
+            "mode": mode,
+            "created_at": self._now(),
+            "members": [dict(member) for member in members],
+        }
+        with self._lock:
+            self._formations[formation_id] = item
+            return self._formation_snapshot(item)
+
+    def list_formations(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return [self._formation_snapshot(item) for item in self._formations.values()]
+
+    def get_formation(self, formation_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            current = self._formations.get(formation_id)
+            if current is None:
+                return None
+            return self._formation_snapshot(current)
+
     def parse_robot_topic(self, topic: str) -> Optional[tuple[str, str]]:
         match = ROBOT_TOPIC_PATTERN.match(topic)
         if match is None:
@@ -165,6 +195,52 @@ class FleetService:
         current["acked_at"] = now
         current["ack"] = dict(payload)
         current["error"] = None if current["status"] == "acked" else payload.get("detail")
+
+    def _formation_snapshot(self, formation: Dict[str, Any]) -> Dict[str, Any]:
+        members = []
+        online_robots = 0
+        acked_commands = 0
+        for member in formation["members"]:
+            robot_code = member["robot_code"]
+            robot = self._with_liveness(dict(self._robots.get(robot_code) or self._empty_robot(robot_code, self._now())))
+            command = dict(self._commands.get(member["command_id"]) or {})
+            command_status = command.get("status")
+            robot_ready = (
+                robot.get("status") == "online"
+                and command_status == "acked"
+                and robot.get("formation_id") == formation["formation_id"]
+                and robot.get("formation_role") == member["role"]
+                and robot.get("formation_slot") == member["slot_index"]
+            )
+            if robot.get("status") == "online":
+                online_robots += 1
+            if command_status == "acked":
+                acked_commands += 1
+            members.append(
+                {
+                    "robot_code": robot_code,
+                    "role": member["role"],
+                    "slot_index": member["slot_index"],
+                    "offset_x": member["offset_x"],
+                    "offset_y": member["offset_y"],
+                    "command": command,
+                    "robot": robot,
+                    "ready": robot_ready,
+                }
+            )
+
+        total_robots = len(members)
+        return {
+            "formation_id": formation["formation_id"],
+            "formation_type": formation["formation_type"],
+            "mode": formation["mode"],
+            "created_at": formation["created_at"],
+            "total_robots": total_robots,
+            "online_robots": online_robots,
+            "acked_commands": acked_commands,
+            "ready": total_robots > 0 and all(member["ready"] for member in members),
+            "members": members,
+        }
 
     @staticmethod
     def _now() -> datetime:
