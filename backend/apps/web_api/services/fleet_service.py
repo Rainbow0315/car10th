@@ -121,6 +121,25 @@ class FleetService:
             self._with_command_timeout(current)
             return dict(current)
 
+    def list_commands(
+        self,
+        robot_code: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        with self._lock:
+            self._refresh_command_timeouts()
+            commands = list(self._commands.values())
+            if robot_code:
+                commands = [item for item in commands if item.get("robot_code") == robot_code]
+            if status:
+                commands = [item for item in commands if item.get("status") == status]
+            commands.sort(
+                key=lambda item: item.get("published_at") or item.get("issued_at") or datetime.min,
+                reverse=True,
+            )
+            return [dict(item) for item in commands[:limit]]
+
     def register_formation(
         self,
         formation_id: str,

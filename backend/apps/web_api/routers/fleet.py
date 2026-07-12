@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from apps.web_api.services.fleet_service import fleet_service
 from common.config.settings import settings
@@ -10,8 +10,10 @@ from common.mqtt import fleet_command_topic, mqtt_manager
 from common.schemas.fleet import (
     FleetBatchCommandRequest,
     FleetBatchCommandResponse,
+    FleetCommandListResponse,
     FleetCommandRequest,
     FleetCommandSnapshot,
+    FleetCommandStatus,
     FleetFormationListResponse,
     FleetFormationRequest,
     FleetFormationResponse,
@@ -202,6 +204,31 @@ def _publish_fleet_command(
         error=None if published else mqtt_manager.last_error,
     )
     return command
+
+
+@router.get(
+    "/commands",
+    response_model=FleetCommandListResponse,
+    summary="List fleet commands with optional filters",
+)
+def list_fleet_commands(
+    robot_code: str | None = Query(default=None, min_length=1, max_length=32),
+    status_filter: FleetCommandStatus | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    commands = [
+        FleetCommandSnapshot.model_validate(item)
+        for item in fleet_service.list_commands(
+            robot_code=robot_code,
+            status=status_filter,
+            limit=limit,
+        )
+    ]
+    return FleetCommandListResponse(
+        commands=commands,
+        total=len(commands),
+        limit=limit,
+    )
 
 
 @router.get(

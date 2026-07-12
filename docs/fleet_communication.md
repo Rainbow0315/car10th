@@ -360,3 +360,47 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/summary
 ```
 
 这个接口适合做调试面板或移动端首页的车队健康概览。
+
+## 第 9 步：命令列表与筛选接口
+
+目标效果：
+
+- 下发单车或多车命令后，不需要手动记录每个 `command_id`。
+- 可以按车辆筛选最新命令，快速判断某台车是否收到并 ACK。
+- 可以按状态筛选 `published`、`acked`、`failed`、`timeout` 命令，定位协同任务卡在哪一步。
+
+查询最新命令：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?limit=20"
+```
+
+只看某台车：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=20"
+```
+
+只看已 ACK 的命令：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?status=acked&limit=20"
+```
+
+预期核心字段：
+
+```json
+{
+  "total": 1,
+  "limit": 20,
+  "commands": [
+    {
+      "robot_code": "robot_001",
+      "command": "set_mode",
+      "status": "acked"
+    }
+  ]
+}
+```
+
+这个接口适合真机调试时持续观察“命令是否发出、是否被小车确认、是否超时”。

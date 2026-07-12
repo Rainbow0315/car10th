@@ -77,6 +77,12 @@ class FleetCommandSnapshot(BaseModel):
     error: Optional[str] = None
 
 
+class FleetCommandListResponse(BaseModel):
+    commands: list[FleetCommandSnapshot]
+    total: int
+    limit: int
+
+
 class FleetBatchCommandResponse(BaseModel):
     commands: list[FleetCommandSnapshot]
 
