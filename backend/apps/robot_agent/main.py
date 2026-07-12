@@ -25,6 +25,8 @@ class RobotAgent:
         self.formation_id: str | None = None
         self.formation_role: str | None = None
         self.formation_slot: int | None = None
+        self.rescue_incident_id: str | None = None
+        self.rescue_target_robot_code: str | None = None
         self.hostname = socket.gethostname()
         self.agent_version = self._load_deployed_commit()
         self.stop_event = Event()
@@ -91,6 +93,8 @@ class RobotAgent:
                 "formation_id": self.formation_id,
                 "formation_role": self.formation_role,
                 "formation_slot": self.formation_slot,
+                "rescue_incident_id": self.rescue_incident_id,
+                "rescue_target_robot_code": self.rescue_target_robot_code,
                 "timestamp": self._now_iso(),
             },
         )
@@ -181,6 +185,13 @@ class RobotAgent:
             except (TypeError, ValueError):
                 self.formation_slot = None
             detail = f"formation role set to {self.formation_role or 'unknown'}"
+        elif command == "assist_robot":
+            self.mode = "rescue"
+            self.rescue_incident_id = str(command_payload.get("incident_id") or "").strip() or None
+            self.rescue_target_robot_code = (
+                str(command_payload.get("disabled_robot_code") or "").strip() or None
+            )
+            detail = f"rescue task accepted for {self.rescue_target_robot_code or 'unknown robot'}"
 
         self._publish(
             robot_ack_topic(self.robot_code),
@@ -190,6 +201,8 @@ class RobotAgent:
                 "command": command,
                 "status": "accepted",
                 "detail": detail,
+                "rescue_incident_id": self.rescue_incident_id,
+                "rescue_target_robot_code": self.rescue_target_robot_code,
                 "dry_run": self.dry_run,
                 "timestamp": self._now_iso(),
             },

@@ -449,3 +449,106 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/readiness" 
 ```
 
 如果小车在线，预期 `all_ready=true`、`ready_robots=1`。
+
+## 第 11 步：批量命令与编队的前置检查保护
+
+目标效果：
+
+- 批量命令和编队创建默认保持兼容，仍按原方式下发。
+- 如果请求中设置 `require_all_ready=true`，后端会先做 readiness 检查。
+- 只要有目标车离线或 error，后端返回 `409 Conflict`，不会下发任何命令。
+
+安全拒绝测试：包含一台不存在的车。
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001", "robot_missing")
+  command = "set_mode"
+  payload = @{ mode = "idle" }
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/commands/batch" -ContentType "application/json" -Body $body
+```
+
+预期返回 `409 Conflict`，核心内容包含：
+
+```json
+{
+  "message": "not all robots are ready for fleet command",
+  "readiness": {
+    "all_ready": false,
+    "ready_robots": 1
+  }
+}
+```
+
+安全通过测试：只包含当前在线真机。
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001")
+  command = "set_mode"
+  payload = @{ mode = "idle" }
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/commands/batch" -ContentType "application/json" -Body $body
+```
+
+如果 `robot_001` 在线，预期命令可以下发并 ACK。随后可用命令列表确认：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&status=acked&limit=5"
+```
+
+编队创建接口 `/api/fleet/formations` 同样支持 `require_all_ready=true`。
+
+## 第 12 步：地下空间抛锚救援调度
+
+场景故事：
+
+大型工业园区地下空间里，某台车在巡检或运输过程中抛锚、失联或上报 error。调度后端需要把“救援/协助”任务发给另一台在线车辆，让它去寻找或接近故障车的位置。
+
+目标效果：
+
+- 后端生成一个 `incident_id`，代表一次地下空间异常事件。
+- 指定或自动选择一台在线车辆作为 `responder_robot`。
+- 后端向救援车下发 `assist_robot` 命令，并在命令列表里持续观察 ACK。
+- 当前阶段只验证通信和任务闭环，不直接控制车辆移动。
+
+单真机安全测试：把 `robot_missing` 当成抛锚车，让 `robot_001` 接救援任务。
+
+```powershell
+$body = @{
+  disabled_robot_code = "robot_missing"
+  responder_robot_code = "robot_001"
+  incident_type = "breakdown"
+  note = "地下空间B2区疑似抛锚，请前往协助"
+  require_responder_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/rescue" -ContentType "application/json" -Body $body
+```
+
+预期核心字段：
+
+```json
+{
+  "disabled_robot_code": "robot_missing",
+  "responder_robot_code": "robot_001",
+  "incident_type": "breakdown",
+  "command": {
+    "command": "assist_robot",
+    "status": "published"
+  }
+}
+```
+
+随后查询 ACK：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&status=acked&limit=5"
+```
+
+如果 `robot_001` 在线，预期能看到 `assist_robot` 命令已 ACK。后续接入真实定位/导航后，车端可以把 `target_pose` 转成实际导航目标。

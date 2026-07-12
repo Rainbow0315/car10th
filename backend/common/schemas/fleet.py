@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 FleetRobotStatus = Literal["online", "offline", "error"]
-FleetRobotMode = Literal["idle", "teleop", "patrol", "follow", "busy"]
+FleetRobotMode = Literal["idle", "teleop", "patrol", "follow", "busy", "rescue"]
 FleetCommandStatus = Literal["pending", "published", "acked", "failed", "timeout"]
 
 
@@ -27,6 +27,8 @@ class FleetRobotSnapshot(BaseModel):
     formation_id: Optional[str] = None
     formation_role: Optional[str] = None
     formation_slot: Optional[int] = None
+    rescue_incident_id: Optional[str] = None
+    rescue_target_robot_code: Optional[str] = None
     last_seen_at: Optional[datetime] = None
     updated_at: datetime
     last_message_type: Optional[str] = None
@@ -82,6 +84,7 @@ class FleetCommandRequest(BaseModel):
 
 class FleetBatchCommandRequest(FleetCommandRequest):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
+    require_all_ready: bool = False
 
 
 class FleetCommandSnapshot(BaseModel):
@@ -108,11 +111,30 @@ class FleetBatchCommandResponse(BaseModel):
     commands: list[FleetCommandSnapshot]
 
 
+class FleetRescueRequest(BaseModel):
+    disabled_robot_code: str = Field(..., min_length=1, max_length=32)
+    responder_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    incident_type: str = Field("breakdown", min_length=1, max_length=32)
+    note: Optional[str] = Field(default=None, max_length=256)
+    require_responder_ready: bool = True
+
+
+class FleetRescueResponse(BaseModel):
+    incident_id: str
+    disabled_robot_code: str
+    responder_robot_code: str
+    incident_type: str
+    command: FleetCommandSnapshot
+    disabled_robot: FleetRobotSnapshot
+    responder_robot: FleetRobotSnapshot
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)
     mode: str = Field("patrol", min_length=1, max_length=32)
     spacing_m: float = Field(1.0, ge=0.0, le=20.0)
+    require_all_ready: bool = False
 
 
 class FleetFormationResponse(BaseModel):

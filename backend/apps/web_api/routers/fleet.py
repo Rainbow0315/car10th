@@ -20,6 +20,8 @@ from common.schemas.fleet import (
     FleetFormationSnapshot,
     FleetReadinessRequest,
     FleetReadinessResponse,
+    FleetRescueRequest,
+    FleetRescueResponse,
     FleetRobotListResponse,
     FleetRobotSnapshot,
     FleetSummaryResponse,
@@ -89,6 +91,7 @@ def send_batch_fleet_command(request: FleetBatchCommandRequest):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="robot_codes must contain at least one non-empty robot code",
         )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
     commands = [
         FleetCommandSnapshot.model_validate(
             _publish_fleet_command(robot_code, request.command, request.payload)
@@ -96,6 +99,60 @@ def send_batch_fleet_command(request: FleetBatchCommandRequest):
         for robot_code in robot_codes
     ]
     return FleetBatchCommandResponse(commands=commands)
+
+
+@router.post(
+    "/rescue",
+    response_model=FleetRescueResponse,
+    summary="Dispatch one robot to assist a disabled robot",
+)
+def dispatch_fleet_rescue(request: FleetRescueRequest):
+    disabled_robot_code = request.disabled_robot_code.strip()
+    if not disabled_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="disabled_robot_code must not be empty",
+        )
+    responder_robot_code = _select_responder_robot(
+        disabled_robot_code=disabled_robot_code,
+        requested_responder=(request.responder_robot_code or "").strip() or None,
+        require_ready=request.require_responder_ready,
+    )
+    incident_id = uuid.uuid4().hex
+    disabled_robot = fleet_service.get_robot(disabled_robot_code)
+    payload = {
+        "incident_id": incident_id,
+        "incident_type": request.incident_type,
+        "disabled_robot_code": disabled_robot_code,
+        "target_pose": {
+            "x": disabled_robot.get("pose_x"),
+            "y": disabled_robot.get("pose_y"),
+            "yaw": disabled_robot.get("pose_yaw"),
+            "map_name": disabled_robot.get("map_name"),
+        },
+        "note": request.note,
+    }
+    command = _publish_fleet_command(
+        responder_robot_code,
+        "assist_robot",
+        payload,
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetRescueResponse(
+        incident_id=incident_id,
+        disabled_robot_code=disabled_robot_code,
+        responder_robot_code=responder_robot_code,
+        incident_type=request.incident_type,
+        command=FleetCommandSnapshot.model_validate(command),
+        disabled_robot=FleetRobotSnapshot.model_validate(disabled_robot),
+        responder_robot=FleetRobotSnapshot.model_validate(
+            fleet_service.get_robot(responder_robot_code)
+        ),
+    )
 
 
 @router.post(
@@ -110,6 +167,7 @@ def create_fleet_formation(request: FleetFormationRequest):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="robot_codes must contain at least one non-empty robot code",
         )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
 
     formation_id = uuid.uuid4().hex
     commands = []
@@ -193,6 +251,49 @@ def _unique_robot_codes(robot_codes: list[str]) -> list[str]:
         seen.add(item)
         normalized.append(item)
     return normalized
+
+
+def _ensure_fleet_ready(robot_codes: list[str], require_all_ready: bool) -> None:
+    if not require_all_ready:
+        return
+    readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes))
+    if readiness.all_ready:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "message": "not all robots are ready for fleet command",
+            "readiness": readiness.model_dump(mode="json"),
+        },
+    )
+
+
+def _select_responder_robot(
+    disabled_robot_code: str,
+    requested_responder: str | None,
+    require_ready: bool,
+) -> str:
+    if requested_responder:
+        if requested_responder == disabled_robot_code:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="responder_robot_code must be different from disabled_robot_code",
+            )
+        _ensure_fleet_ready([requested_responder], require_ready)
+        return requested_responder
+
+    candidates = [
+        item
+        for item in fleet_service.list_robots()
+        if item.get("robot_code") != disabled_robot_code and item.get("status") == "online"
+    ]
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="no online responder robot available",
+        )
+    candidates.sort(key=lambda item: str(item.get("robot_code") or ""))
+    return str(candidates[0]["robot_code"])
 
 
 def _publish_fleet_command(
