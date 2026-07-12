@@ -974,3 +974,65 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 如果当前小车仍运行稳定 `main`，预期只能验证 MQTT `published -> acked` 闭环；等 dev 集成到 main 并部署到小车后，预期 `escort_return` 会真正触发低速短时跟随动作。如果车端 `ros_bridge` 未就绪，预期返回 `failed` 和运动链路错误原因。
+
+## 第 21 步：地下车牌目标协同核验
+
+场景故事：
+
+地下空间里可能有外来车辆、滞留车辆或低电量车辆停在设备间、坡道口、消防通道附近。视觉模型可以先输出车牌号、识别置信度和检测框，调度端再派一台在线小车到疑似区域低速原地扫描，进行二次核验。这个功能把“车牌识别模型能看到什么”和“多车协同能做什么”连起来：模型发现目标，车队派车确认，确认后可以继续触发护送返航、区域急停或绕行。
+
+目标效果：
+
+- 后端通过 `/api/fleet/vision/plate/verify` 接收车牌识别结果。
+- 请求中携带 `plate_number`、`recognition_confidence`、`bbox`、`zone_id` 和 `source_camera_id`。
+- 后端向 `verifier_robot_code` 下发 `plate_verify_scan` 命令。
+- 车端 dev 版本收到命令后进入 `busy` 模式，通过本地 `ros_bridge` 执行短时低速原地旋转 `/cmd_vel`，给摄像头二次观察机会。
+- 当前不把模型部署包或模型对接文档上传仓库，只把模型输出作为接口输入。
+
+安全参数限制：
+
+- `linear_x` 固定为 `0.0`
+- `angular_z` 范围：`0.1 ~ 0.4 rad/s`
+- `duration` 范围：`0.5 ~ 3.0 s`
+
+单车真机链路测试：
+
+```powershell
+$body = @{
+  verifier_robot_code = "robot_001"
+  plate_number = "PLATE-DEMO-001"
+  recognition_confidence = 0.96
+  zone_id = "B2-fire-lane-A"
+  source_camera_id = "cam_robot_001_front"
+  bbox = @(120, 80, 260, 140)
+  note = "视觉模型识别到疑似滞留车辆，派robot_001原地低速扫描确认"
+  angular_z = 0.22
+  duration = 1.5
+  require_verifier_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/vision/plate/verify" -ContentType "application/json" -Body $body
+```
+
+预期返回：
+
+```json
+{
+  "verifier_robot_code": "robot_001",
+  "plate_number": "PLATE-DEMO-001",
+  "recognition_confidence": 0.96,
+  "zone_id": "B2-fire-lane-A",
+  "command": {
+    "command": "plate_verify_scan",
+    "status": "published"
+  }
+}
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果当前小车仍运行稳定 `main`，预期只能验证 MQTT `published -> acked` 闭环；等 dev 集成到 main 并部署后，预期 `plate_verify_scan` 会触发短时低速原地旋转。如果车端 `ros_bridge` 未就绪，预期返回 `failed` 和运动链路错误原因。

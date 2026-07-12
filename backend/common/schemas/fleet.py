@@ -260,6 +260,29 @@ class FleetEscortReturnResponse(BaseModel):
     command: FleetCommandSnapshot
 
 
+class FleetPlateVerifyRequest(BaseModel):
+    verifier_robot_code: str = Field(..., min_length=1, max_length=32)
+    plate_number: str = Field(..., min_length=1, max_length=32)
+    recognition_confidence: float = Field(..., ge=0.0, le=1.0)
+    zone_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    source_camera_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    bbox: Optional[list[int]] = Field(default=None, min_length=4, max_length=4)
+    note: Optional[str] = Field(default=None, max_length=128)
+    angular_z: float = Field(0.22, ge=0.1, le=0.4)
+    duration: float = Field(1.5, ge=0.5, le=3.0)
+    require_verifier_ready: bool = True
+
+
+class FleetPlateVerifyResponse(BaseModel):
+    verification_id: str
+    verifier_robot_code: str
+    plate_number: str
+    recognition_confidence: float
+    zone_id: Optional[str] = None
+    source_camera_id: Optional[str] = None
+    command: FleetCommandSnapshot
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)

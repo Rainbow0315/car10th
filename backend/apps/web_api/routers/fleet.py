@@ -26,6 +26,8 @@ from common.schemas.fleet import (
     FleetFormationSnapshot,
     FleetHazardAvoidanceRequest,
     FleetHazardAvoidanceResponse,
+    FleetPlateVerifyRequest,
+    FleetPlateVerifyResponse,
     FleetReadinessRequest,
     FleetReadinessResponse,
     FleetRescueApproachRequest,
@@ -497,6 +499,57 @@ def dispatch_escort_return(request: FleetEscortReturnRequest):
         maintenance_zone_id=request.maintenance_zone_id,
         target_plate_number=request.target_plate_number,
         recognition_confidence=request.recognition_confidence,
+        command=FleetCommandSnapshot.model_validate(command),
+    )
+
+
+@router.post(
+    "/vision/plate/verify",
+    response_model=FleetPlateVerifyResponse,
+    summary="Dispatch one robot to verify a detected underground plate target",
+)
+def dispatch_plate_verify_scan(request: FleetPlateVerifyRequest):
+    verifier_robot_code = request.verifier_robot_code.strip()
+    if not verifier_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="verifier_robot_code must not be empty",
+        )
+    _ensure_fleet_ready([verifier_robot_code], request.require_verifier_ready)
+    verification_id = uuid.uuid4().hex
+    command = _publish_fleet_command(
+        verifier_robot_code,
+        "plate_verify_scan",
+        {
+            "verification_id": verification_id,
+            "plate_number": request.plate_number,
+            "recognition_confidence": request.recognition_confidence,
+            "zone_id": request.zone_id,
+            "source_camera_id": request.source_camera_id,
+            "bbox": request.bbox,
+            "note": request.note,
+            "scenario": "underground_plate_target_verification",
+            "motion": {
+                "linear_x": 0.0,
+                "linear_y": 0.0,
+                "angular_z": request.angular_z,
+                "duration": request.duration,
+                "rate_hz": 10.0,
+            },
+        },
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetPlateVerifyResponse(
+        verification_id=verification_id,
+        verifier_robot_code=verifier_robot_code,
+        plate_number=request.plate_number,
+        recognition_confidence=request.recognition_confidence,
+        zone_id=request.zone_id,
+        source_camera_id=request.source_camera_id,
         command=FleetCommandSnapshot.model_validate(command),
     )
 
