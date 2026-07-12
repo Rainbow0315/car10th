@@ -552,3 +552,53 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&statu
 ```
 
 如果 `robot_001` 在线，预期能看到 `assist_robot` 命令已 ACK。后续接入真实定位/导航后，车端可以把 `target_pose` 转成实际导航目标。
+
+## 第 13 步：救援车低速接近动作
+
+场景故事：
+
+地下空间里确认某台车抛锚后，救援车不应该一上来就高速移动，而是先执行一个短时、低速、可停止的接近动作。这个动作由后端通过 MQTT 下发给指定救援车，真正的 `/cmd_vel` 发布发生在救援车本机的 `robot_agent -> ros_bridge -> ROS2` 链路上。
+
+目标效果：
+
+- 后端向救援车下发 `rescue_approach` 命令。
+- 车端 agent 进入 `rescue` 模式。
+- 车端通过本地 `ros_bridge` 发布低速 `/cmd_vel`。
+- 如果 `ros_bridge` 或底盘订阅者未就绪，命令 ACK 会变成 `failed`，便于定位真实运动链路问题。
+
+安全参数限制：
+
+- `linear_x` 范围：`0.0 ~ 0.12 m/s`
+- `angular_z` 范围：`-0.4 ~ 0.4 rad/s`
+- `duration` 范围：`0.1 ~ 2.0 s`
+
+先确认车上运动链路：
+
+```bash
+curl http://127.0.0.1:8001/health
+ros2 topic info /cmd_vel
+```
+
+从后端下发低速接近任务：
+
+```powershell
+$body = @{
+  responder_robot_code = "robot_001"
+  disabled_robot_code = "robot_missing"
+  incident_id = "demo_breakdown_001"
+  linear_x = 0.08
+  angular_z = 0.0
+  duration = 0.8
+  require_responder_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/rescue/approach" -ContentType "application/json" -Body $body
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果车端 `ros_bridge` 和底盘都就绪，预期 `rescue_approach` 最终 `status=acked`，且小车执行一次短时低速前进。如果未就绪，预期 `status=failed`，`error/detail` 会说明是 `ros_bridge` 不可达或 `/cmd_vel` 没有订阅者。

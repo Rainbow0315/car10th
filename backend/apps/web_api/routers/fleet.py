@@ -20,6 +20,8 @@ from common.schemas.fleet import (
     FleetFormationSnapshot,
     FleetReadinessRequest,
     FleetReadinessResponse,
+    FleetRescueApproachRequest,
+    FleetRescueApproachResponse,
     FleetRescueRequest,
     FleetRescueResponse,
     FleetRobotListResponse,
@@ -152,6 +154,48 @@ def dispatch_fleet_rescue(request: FleetRescueRequest):
         responder_robot=FleetRobotSnapshot.model_validate(
             fleet_service.get_robot(responder_robot_code)
         ),
+    )
+
+
+@router.post(
+    "/rescue/approach",
+    response_model=FleetRescueApproachResponse,
+    summary="Ask a responder robot to move slowly for rescue approach",
+)
+def dispatch_rescue_approach(request: FleetRescueApproachRequest):
+    responder_robot_code = request.responder_robot_code.strip()
+    if not responder_robot_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="responder_robot_code must not be empty",
+        )
+    _ensure_fleet_ready([responder_robot_code], request.require_responder_ready)
+    payload = {
+        "incident_id": request.incident_id,
+        "disabled_robot_code": request.disabled_robot_code,
+        "motion": {
+            "linear_x": request.linear_x,
+            "linear_y": 0.0,
+            "angular_z": request.angular_z,
+            "duration": request.duration,
+            "rate_hz": 10.0,
+        },
+    }
+    command = _publish_fleet_command(
+        responder_robot_code,
+        "rescue_approach",
+        payload,
+    )
+    if command["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=command["error"] or "MQTT publish failed",
+        )
+    return FleetRescueApproachResponse(
+        responder_robot_code=responder_robot_code,
+        disabled_robot_code=request.disabled_robot_code,
+        incident_id=request.incident_id,
+        command=FleetCommandSnapshot.model_validate(command),
     )
 
 

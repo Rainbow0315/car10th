@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any, Dict
 
+import httpx
 import paho.mqtt.client as mqtt
 
 from common.config.settings import settings
@@ -158,6 +159,7 @@ class RobotAgent:
             command_payload = {}
 
         detail = "command received"
+        ack_status = "accepted"
         if command in {"stop", "emergency_stop"}:
             self.mode = "idle"
             detail = "stop accepted"
@@ -192,6 +194,15 @@ class RobotAgent:
                 str(command_payload.get("disabled_robot_code") or "").strip() or None
             )
             detail = f"rescue task accepted for {self.rescue_target_robot_code or 'unknown robot'}"
+        elif command == "rescue_approach":
+            self.mode = "rescue"
+            self.rescue_incident_id = str(command_payload.get("incident_id") or "").strip() or None
+            self.rescue_target_robot_code = (
+                str(command_payload.get("disabled_robot_code") or "").strip() or None
+            )
+            motion_result = self._execute_rescue_approach(command_payload)
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
 
         self._publish(
             robot_ack_topic(self.robot_code),
@@ -199,7 +210,7 @@ class RobotAgent:
                 "robot_code": self.robot_code,
                 "command_id": command_id,
                 "command": command,
-                "status": "accepted",
+                "status": ack_status,
                 "detail": detail,
                 "rescue_incident_id": self.rescue_incident_id,
                 "rescue_target_robot_code": self.rescue_target_robot_code,
@@ -208,6 +219,33 @@ class RobotAgent:
             },
         )
         self.publish_status()
+
+    def _execute_rescue_approach(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        motion = payload.get("motion", {})
+        if not isinstance(motion, dict):
+            motion = {}
+        command = {
+            "linear_x": self._float_in_range(motion.get("linear_x"), 0.08, 0.0, 0.12),
+            "linear_y": 0.0,
+            "angular_z": self._float_in_range(motion.get("angular_z"), 0.0, -0.4, 0.4),
+            "duration": self._float_in_range(motion.get("duration"), 0.8, 0.1, 2.0),
+            "rate_hz": self._float_in_range(motion.get("rate_hz"), 10.0, 1.0, 15.0),
+            "wait_for_subscriber_timeout": 1.0,
+        }
+        if self.dry_run:
+            return {"ok": True, "detail": f"dry-run rescue approach accepted: {command}"}
+        url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/cmd-vel"
+        try:
+            with httpx.Client(timeout=command["duration"] + 3.0) as client:
+                response = client.post(url, json=command)
+        except httpx.RequestError as exc:
+            return {"ok": False, "detail": f"rescue approach failed: ROS bridge unreachable at {url}: {exc}"}
+        if not response.is_success:
+            return {
+                "ok": False,
+                "detail": f"rescue approach failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
+            }
+        return {"ok": True, "detail": f"rescue approach motion accepted: {command}"}
 
     @staticmethod
     def _now_iso() -> str:
@@ -231,6 +269,14 @@ class RobotAgent:
             return None
         finally:
             sock.close()
+
+    @staticmethod
+    def _float_in_range(value: Any, fallback: float, lower: float, upper: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = fallback
+        return max(lower, min(upper, parsed))
 
 
 def parse_args() -> argparse.Namespace:
