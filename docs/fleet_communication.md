@@ -688,3 +688,51 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 如果车端 `ros_bridge` 和底盘都就绪，预期 `rescue_search` 最终 `status=acked`，小车短时低速原地旋转；如果未就绪，预期 `status=failed` 并带运动链路错误原因。
+
+## 第 16 步：地下狭窄通道编队慢行
+
+场景故事：
+
+大型工业园区地下空间常见单车道、坡道、设备间窄通道。事故解除或救援车通过后，多车不能同时抢占通道，需要由调度端按队列下发低速慢行动作，形成“单列通过”的协同故事。
+
+目标效果：
+
+- 后端向一组车辆下发 `corridor_crawl` 命令。
+- 每台车 payload 包含 `slot_index` 和 `spacing_m`，表示通行顺序和队间距。
+- 车端 dev 版本进入 `busy` 模式，并通过本地 `ros_bridge` 发布低速直行 `/cmd_vel`。
+- 动作被限制为低速、短时，便于真机测试。
+
+安全参数限制：
+
+- `linear_x` 范围：`0.0 ~ 0.12 m/s`
+- `angular_z` 固定为 `0.0`
+- `duration` 范围：`0.2 ~ 3.0 s`
+
+单车安全测试：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001")
+  corridor_id = "B2-narrow-corridor-A"
+  linear_x = 0.06
+  duration = 1.0
+  spacing_m = 1.0
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/corridor/crawl" -ContentType "application/json" -Body $body
+```
+
+多车演示时，把 `robot_codes` 扩展为：
+
+```powershell
+robot_codes = @("robot_001", "robot_002", "robot_003")
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?limit=10"
+```
+
+如果车端 `ros_bridge` 和底盘都就绪，预期 `corridor_crawl` 最终 `status=acked`，车辆短时低速直行；如果未就绪，预期 `status=failed` 并带运动链路错误原因。

@@ -202,15 +202,17 @@ class RobotAgent:
             self.rescue_target_robot_code = (
                 str(command_payload.get("disabled_robot_code") or "").strip() or None
             )
-            motion_result = self._execute_rescue_motion(
+            motion_result = self._execute_limited_motion(
                 command_payload,
-                action_name="approach",
+                action_name="rescue approach",
                 linear_fallback=0.08,
+                linear_lower=0.0,
                 linear_upper=0.12,
                 angular_fallback=0.0,
                 angular_lower=-0.4,
                 angular_upper=0.4,
                 duration_fallback=0.8,
+                duration_lower=0.1,
                 duration_upper=2.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
@@ -221,15 +223,34 @@ class RobotAgent:
             self.rescue_target_robot_code = (
                 str(command_payload.get("disabled_robot_code") or "").strip() or None
             )
-            motion_result = self._execute_rescue_motion(
+            motion_result = self._execute_limited_motion(
                 command_payload,
-                action_name="search",
+                action_name="rescue search",
                 linear_fallback=0.0,
+                linear_lower=0.0,
                 linear_upper=0.0,
                 angular_fallback=0.25,
                 angular_lower=0.1,
                 angular_upper=0.4,
                 duration_fallback=1.5,
+                duration_lower=0.5,
+                duration_upper=3.0,
+            )
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
+        elif command == "corridor_crawl":
+            self.mode = "busy"
+            motion_result = self._execute_limited_motion(
+                command_payload,
+                action_name="corridor crawl",
+                linear_fallback=0.06,
+                linear_lower=0.0,
+                linear_upper=0.12,
+                angular_fallback=0.0,
+                angular_lower=0.0,
+                angular_upper=0.0,
+                duration_fallback=1.0,
+                duration_lower=0.2,
                 duration_upper=3.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
@@ -251,43 +272,45 @@ class RobotAgent:
         )
         self.publish_status()
 
-    def _execute_rescue_motion(
+    def _execute_limited_motion(
         self,
         payload: Dict[str, Any],
         action_name: str,
         linear_fallback: float,
+        linear_lower: float,
         linear_upper: float,
         angular_fallback: float,
         angular_lower: float,
         angular_upper: float,
         duration_fallback: float,
+        duration_lower: float,
         duration_upper: float,
     ) -> Dict[str, Any]:
         motion = payload.get("motion", {})
         if not isinstance(motion, dict):
             motion = {}
         command = {
-            "linear_x": self._float_in_range(motion.get("linear_x"), linear_fallback, 0.0, linear_upper),
+            "linear_x": self._float_in_range(motion.get("linear_x"), linear_fallback, linear_lower, linear_upper),
             "linear_y": 0.0,
             "angular_z": self._float_in_range(motion.get("angular_z"), angular_fallback, angular_lower, angular_upper),
-            "duration": self._float_in_range(motion.get("duration"), duration_fallback, 0.1, duration_upper),
+            "duration": self._float_in_range(motion.get("duration"), duration_fallback, duration_lower, duration_upper),
             "rate_hz": self._float_in_range(motion.get("rate_hz"), 10.0, 1.0, 15.0),
             "wait_for_subscriber_timeout": 1.0,
         }
         if self.dry_run:
-            return {"ok": True, "detail": f"dry-run rescue {action_name} accepted: {command}"}
+            return {"ok": True, "detail": f"dry-run {action_name} accepted: {command}"}
         url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/cmd-vel"
         try:
             with httpx.Client(timeout=command["duration"] + 3.0) as client:
                 response = client.post(url, json=command)
         except httpx.RequestError as exc:
-            return {"ok": False, "detail": f"rescue {action_name} failed: ROS bridge unreachable at {url}: {exc}"}
+            return {"ok": False, "detail": f"{action_name} failed: ROS bridge unreachable at {url}: {exc}"}
         if not response.is_success:
             return {
                 "ok": False,
-                "detail": f"rescue {action_name} failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
+                "detail": f"{action_name} failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
             }
-        return {"ok": True, "detail": f"rescue {action_name} motion accepted: {command}"}
+        return {"ok": True, "detail": f"{action_name} motion accepted: {command}"}
 
     def _execute_robot_stop(self) -> Dict[str, Any]:
         if self.dry_run:

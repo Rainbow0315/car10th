@@ -14,6 +14,8 @@ from common.schemas.fleet import (
     FleetCommandRequest,
     FleetCommandSnapshot,
     FleetCommandStatus,
+    FleetCorridorCrawlRequest,
+    FleetCorridorCrawlResponse,
     FleetFormationListResponse,
     FleetFormationRequest,
     FleetFormationResponse,
@@ -279,6 +281,45 @@ def stop_fleet_for_safety(request: FleetSafetyStopRequest):
         for robot_code in robot_codes
     ]
     return FleetSafetyStopResponse(target_robots=robot_codes, commands=commands)
+
+
+@router.post(
+    "/corridor/crawl",
+    response_model=FleetCorridorCrawlResponse,
+    summary="Move robots slowly through a narrow underground corridor",
+)
+def dispatch_corridor_crawl(request: FleetCorridorCrawlRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
+    commands = []
+    for slot_index, robot_code in enumerate(robot_codes):
+        command = _publish_fleet_command(
+            robot_code,
+            "corridor_crawl",
+            {
+                "corridor_id": request.corridor_id,
+                "slot_index": slot_index,
+                "spacing_m": request.spacing_m,
+                "motion": {
+                    "linear_x": request.linear_x,
+                    "linear_y": 0.0,
+                    "angular_z": 0.0,
+                    "duration": request.duration,
+                    "rate_hz": 10.0,
+                },
+            },
+        )
+        commands.append(FleetCommandSnapshot.model_validate(command))
+    return FleetCorridorCrawlResponse(
+        corridor_id=request.corridor_id,
+        robot_codes=robot_codes,
+        commands=commands,
+    )
 
 
 @router.post(

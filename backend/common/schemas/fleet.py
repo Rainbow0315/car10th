@@ -173,6 +173,21 @@ class FleetSafetyStopResponse(BaseModel):
     commands: list[FleetCommandSnapshot]
 
 
+class FleetCorridorCrawlRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=50)
+    corridor_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    linear_x: float = Field(0.06, ge=0.0, le=0.12)
+    duration: float = Field(1.0, ge=0.2, le=3.0)
+    spacing_m: float = Field(1.0, ge=0.3, le=5.0)
+    require_all_ready: bool = True
+
+
+class FleetCorridorCrawlResponse(BaseModel):
+    corridor_id: Optional[str] = None
+    robot_codes: list[str]
+    commands: list[FleetCommandSnapshot]
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)
