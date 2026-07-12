@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +47,12 @@ class AlarmNotifyPayload(BaseModel):
     alarm_type: str
     risk_level: str
     confidence: float
+    alarm_id: Optional[int] = None
+    camera_code: Optional[str] = None
+    detection_model: Optional[str] = None
+    detection_label: Optional[str] = None
+    bbox: List[float] = Field(default_factory=list)
+    image_path: Optional[str] = None
     image_url: Optional[str] = None
     pos_x: float
     pos_y: float

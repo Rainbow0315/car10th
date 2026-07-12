@@ -409,6 +409,7 @@ class AlarmLog(Base):
     )
     confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=0, nullable=False)
     robot_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    camera_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     camera_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("cameras.id"), nullable=True)
     warning_zone_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("warning_zones.id"), nullable=True
@@ -419,6 +420,10 @@ class AlarmLog(Base):
     )
     image_path: Mapped[str] = mapped_column(String(512), nullable=False)
     image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    detection_model: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    detection_label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    bbox_json: Mapped[Optional[List[Any]]] = mapped_column(JSON, nullable=True)
+    raw_result: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     pos_x: Mapped[float] = mapped_column(nullable=False)
     pos_y: Mapped[float] = mapped_column(nullable=False)
     pos_yaw: Mapped[Optional[float]] = mapped_column(nullable=True)

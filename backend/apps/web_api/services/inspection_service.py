@@ -10,7 +10,7 @@ from common.config.settings import settings
 
 class InspectionService:
     def __init__(self) -> None:
-        self._timeout = httpx.Timeout(30.0, connect=5.0)
+        self._timeout = httpx.Timeout(300.0, connect=5.0)
 
     def health(self) -> Dict[str, Any]:
         return self._request("GET", "/health")

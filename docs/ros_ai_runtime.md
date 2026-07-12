@@ -313,19 +313,147 @@ curl -sS --max-time 300 \
 - 是否必须在图片上绘制检测框。
 - 是否需要声音/震动/系统通知。
 
-## 8. 下一步建议
+## 8. 持续检测与 App 预警推送
+
+本阶段新增目标：
+
+- 后端持续从 `/image_raw` 抽帧检测。
+- 只在模型发现风险时保存告警记录。
+- 告警写入 `alarm_logs`。
+- 告警通过 MQTT `alarm/notify` 推送给 App。
+- App 离线后仍可通过 HTTP 查询历史告警。
+
+### 8.1 执行数据库迁移
+
+在 `backend` 目录执行：
+
+```bash
+python3 scripts/run_migration.py db/migrations/003_extend_alarm_detection_fields.sql
+```
+
+新增字段：
+
+- `camera_code`
+- `detection_model`
+- `detection_label`
+- `bbox_json`
+- `raw_result`
+
+### 8.2 启动一次持续检测
+
+确保 `usb_cam` 和 `ai_service` 已经运行，然后启动 `web_api`。
+
+启动持续检测 worker：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/monitor/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic_name": "/image_raw",
+    "interval_sec": 1.0,
+    "timeout_sec": 10,
+    "robot_code": "robot_001",
+    "camera_code": "usb_cam",
+    "enabled_models": ["crack", "puddle", "fod"]
+  }'
+```
+
+查看状态：
+
+```bash
+curl http://127.0.0.1:8000/api/inspection/monitor/status
+```
+
+停止持续检测：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/monitor/stop
+```
+
+只跑一轮检测并落库/推送：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/monitor/inspect-once \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic_name": "/image_raw",
+    "interval_sec": 1.0,
+    "timeout_sec": 10,
+    "robot_code": "robot_001",
+    "camera_code": "usb_cam",
+    "enabled_models": ["crack", "puddle", "fod"]
+  }'
+```
+
+### 8.3 MQTT 预警 topic
+
+预警 topic：
+
+```text
+alarm/notify
+```
+
+订阅测试：
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 \
+  -u parking_app -P parking_app_dev \
+  -t alarm/notify -v
+```
+
+推送 payload 关键字段：
+
+```json
+{
+  "alarm_id": 1,
+  "alarm_no": "ALM20260712163511823xxxxxx",
+  "robot_code": "robot_001",
+  "camera_code": "usb_cam",
+  "alarm_type": "crack",
+  "risk_level": "medium",
+  "confidence": 0.72,
+  "detection_model": "crack",
+  "detection_label": "crack",
+  "bbox": [152.7, 276.6, 639.4, 330.1],
+  "image_path": "/root/car10th/backend/runtime/inspection/monitor_frames/xxx.jpg",
+  "detected_at": "2026-07-12T16:35:11.823"
+}
+```
+
+### 8.4 App 补偿查询接口
+
+查询告警列表：
+
+```bash
+curl 'http://127.0.0.1:8000/api/inspection/alarms?limit=50'
+```
+
+查询单条告警：
+
+```bash
+curl http://127.0.0.1:8000/api/inspection/alarms/1
+```
+
+标记已处理：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/alarms/1/handle \
+  -H "Content-Type: application/json" \
+  -d '{"remark":"已现场确认并处理"}'
+```
+
+## 9. 后续建议
 
 下一阶段优先做：
 
-1. 后端新增“持续检测 worker”。
-2. 设计并落库 `inspection_alarm` 表。
-3. 每次模型检测出风险时写库。
-4. 通过现有 Web API 暴露未处理预警列表。
-5. 再接 Flutter App 预警列表。
+1. Flutter 增加真实 HTTP API base URL 和 token 管理。
+2. Flutter 告警页从 `/api/inspection/alarms` 拉取真实列表。
+3. Flutter 增加 MQTT 客户端，订阅 `alarm/notify`。
+4. MQTT 收到预警后刷新列表，并在前台提示。
+5. 后续再接系统通知、声音/震动和图片框选显示。
 
 在以下问题确认前，不建议直接写死方案：
 
-- 检测频率。
-- 是否保存无风险帧。
-- MQTT 还是 WebSocket 作为 App 实时推送主通道。
+- Flutter 真实网络层：HTTP API base URL、鉴权 token、刷新策略。
+- Flutter MQTT 客户端：连接生命周期、断线重连、前后台通知。
 - 预警严重程度分级规则。

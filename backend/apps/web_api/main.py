@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.web_api.routers import auth, fleet, inspection, robot, teleop
+from apps.web_api.services.inspection_monitor_service import inspection_monitor_service
 from apps.web_api.services.mqtt_service import mqtt_service
 from common.config import settings
 
@@ -13,6 +14,7 @@ async def lifespan(_: FastAPI):
     mqtt_service.start()
     await mqtt_service.start_heartbeat()
     yield
+    await inspection_monitor_service.shutdown()
     await mqtt_service.stop()
 
 

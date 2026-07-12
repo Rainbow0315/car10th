@@ -1,9 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from apps.web_api.services.inspection_alarm_service import inspection_alarm_service
+from apps.web_api.services.inspection_monitor_service import inspection_monitor_service
 from apps.web_api.services.inspection_service import inspection_service
-from common.schemas.inspection import ImageInspectionRequest, ImageInspectionResponse, RosTopicInspectionRequest
+from common.config.database import get_db
+from common.schemas.inspection import (
+    AlarmHandleRequest,
+    AlarmListResponse,
+    AlarmLogResponse,
+    ImageInspectionRequest,
+    ImageInspectionResponse,
+    InspectionMonitorStartRequest,
+    InspectionMonitorStatusResponse,
+    RosTopicInspectionRequest,
+)
 
 router = APIRouter()
 
@@ -21,3 +36,67 @@ def detect_image(payload: ImageInspectionRequest):
 @router.post("/detect-ros-image", response_model=ImageInspectionResponse, summary="Capture one ROS image frame and inspect it")
 def detect_ros_image(payload: RosTopicInspectionRequest):
     return inspection_service.detect_ros_image(payload.model_dump())
+
+
+@router.post("/monitor/start", response_model=InspectionMonitorStatusResponse, summary="Start continuous ROS image inspection")
+async def start_monitor(payload: InspectionMonitorStartRequest):
+    return await inspection_monitor_service.start(payload)
+
+
+@router.post("/monitor/stop", response_model=InspectionMonitorStatusResponse, summary="Stop continuous ROS image inspection")
+async def stop_monitor():
+    return await inspection_monitor_service.stop()
+
+
+@router.get("/monitor/status", response_model=InspectionMonitorStatusResponse, summary="Continuous inspection status")
+def monitor_status():
+    return inspection_monitor_service.status()
+
+
+@router.post("/monitor/inspect-once", summary="Run one monitor iteration and persist risk alarms")
+async def inspect_once(payload: InspectionMonitorStartRequest):
+    return await inspection_monitor_service.inspect_once(payload)
+
+
+@router.get("/alarms", response_model=AlarmListResponse, summary="List persisted inspection alarms")
+def list_alarms(
+    status: Optional[str] = Query(None, description="pending / processing / closed"),
+    alarm_type: Optional[str] = Query(None, description="crack / water / foreign_object / other"),
+    risk_level: Optional[str] = Query(None, description="low / medium / high"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    try:
+        alarms = inspection_alarm_service.list_alarms(
+            db,
+            status=status,
+            alarm_type=alarm_type,
+            risk_level=risk_level,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AlarmListResponse(
+        items=[inspection_alarm_service.to_response(alarm) for alarm in alarms],
+        total=len(alarms),
+    )
+
+
+@router.get("/alarms/{alarm_id_or_no}", response_model=AlarmLogResponse, summary="Get persisted inspection alarm")
+def get_alarm(alarm_id_or_no: str, db: Session = Depends(get_db)):
+    alarm = inspection_alarm_service.get_alarm(db, alarm_id_or_no)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail=f"alarm not found: {alarm_id_or_no}")
+    return inspection_alarm_service.to_response(alarm)
+
+
+@router.post("/alarms/{alarm_id_or_no}/handle", response_model=AlarmLogResponse, summary="Mark alarm as handled")
+def handle_alarm(
+    alarm_id_or_no: str,
+    payload: AlarmHandleRequest,
+    db: Session = Depends(get_db),
+):
+    alarm = inspection_alarm_service.mark_handled(db, alarm_id_or_no, payload.remark)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail=f"alarm not found: {alarm_id_or_no}")
+    return inspection_alarm_service.to_response(alarm)

@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     model_crack: str = str(BASE_DIR / "apps/ai_service/weights/crack_detect.pt")
     model_puddle: str = str(BASE_DIR / "apps/ai_service/weights/puddle_detect.pt")
     model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
+    inspection_monitor_topic: str = "/image_raw"
+    inspection_monitor_interval_sec: float = 1.0
+    inspection_monitor_timeout_sec: float = 5.0
+    inspection_monitor_robot_code: str = "robot_001"
+    inspection_monitor_camera_code: str = "usb_cam"
+    inspection_monitor_output_dir: str = str(BASE_DIR / "runtime" / "inspection" / "monitor_frames")
 
     @property
     def database_url(self) -> str:
