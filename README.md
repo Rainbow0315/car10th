@@ -260,6 +260,9 @@ flutter run
 ## 相关文档
 
 - [MQTT 配置说明](./docs/mqtt_setup.md)
+- [GitHub 分支与 CI 配置说明](./docs/github_cicd_setup.md)
+- [分布式通信与多车协同开发记录](./docs/fleet_communication.md)
+- [小车端长期稳定部署方案](./docs/robot_agent_cicd.md)
 - [后端控车联调说明](./docs/teleop_backend.md)
 - [后端模块说明](./backend/README.md)
 - [移动端说明](./mobile_app/README.md)
@@ -269,4 +272,3 @@ flutter run
 - 优先先打通 `ros_bridge` 或 `tcp_car_bridge` 中的一条真实控车链路
 - 再把 Flutter 端从 Mock Repository 逐步切到真实 API / MQTT
 - 部署到真实网络前，务必修改默认 JWT 密钥与 MQTT 默认密码
-
