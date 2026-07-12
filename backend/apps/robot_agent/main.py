@@ -272,6 +272,23 @@ class RobotAgent:
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
+        elif command == "hazard_avoid":
+            self.mode = "busy"
+            motion_result = self._execute_limited_motion(
+                command_payload,
+                action_name="hazard avoidance",
+                linear_fallback=0.04,
+                linear_lower=0.0,
+                linear_upper=0.1,
+                angular_fallback=0.22,
+                angular_lower=-0.4,
+                angular_upper=0.4,
+                duration_fallback=1.0,
+                duration_lower=0.2,
+                duration_upper=3.0,
+            )
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
 
         self._publish(
             robot_ack_topic(self.robot_code),

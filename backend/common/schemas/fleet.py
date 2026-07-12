@@ -205,6 +205,26 @@ class FleetCorridorYieldResponse(BaseModel):
     command: FleetCommandSnapshot
 
 
+class FleetHazardAvoidanceRequest(BaseModel):
+    robot_codes: Optional[list[str]] = Field(default=None, max_length=50)
+    hazard_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    reported_by_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    avoid_direction: Literal["left", "right"] = "left"
+    linear_x: float = Field(0.04, ge=0.0, le=0.1)
+    angular_z: float = Field(0.22, ge=0.1, le=0.4)
+    duration: float = Field(1.0, ge=0.2, le=3.0)
+    reason: str = Field("avoid underground hazard", min_length=1, max_length=128)
+    require_all_ready: bool = True
+
+
+class FleetHazardAvoidanceResponse(BaseModel):
+    target_robots: list[str]
+    hazard_id: Optional[str] = None
+    reported_by_robot_code: Optional[str] = None
+    avoid_direction: Literal["left", "right"]
+    commands: list[FleetCommandSnapshot]
+
+
 class FleetFormationRequest(BaseModel):
     robot_codes: list[str] = Field(..., min_length=1, max_length=50)
     formation_type: str = Field("line", min_length=1, max_length=32)

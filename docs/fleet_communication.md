@@ -779,3 +779,64 @@ curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit
 ```
 
 如果车端 `ros_bridge` 和底盘都就绪，预期 `corridor_yield` 最终 `status=acked`，车辆短时低速后退；如果未就绪，预期 `status=failed` 并带运动链路错误原因。
+
+## 第 18 步：地下障碍/积水低速绕行
+
+场景故事：
+
+地下空间可能出现临时障碍、积水、施工围挡或遗落物。一台车发现风险后，调度端可以让后续车辆按指定方向低速弧线绕行，避免所有车辆都停在同一个狭窄通道里。
+
+目标效果：
+
+- 后端向指定车辆或所有在线车辆下发 `hazard_avoid` 命令。
+- payload 记录 `hazard_id`、`reported_by_robot_code`、绕行方向和原因。
+- 车端 dev 版本进入 `busy` 模式，并通过本地 `ros_bridge` 发布低速弧线 `/cmd_vel`。
+- 动作被限制为低速、短时，方便真机测试。
+
+安全参数限制：
+
+- `linear_x` 范围：`0.0 ~ 0.1 m/s`
+- `angular_z` 范围：`0.1 ~ 0.4 rad/s`，右绕时后端自动转成负值
+- `duration` 范围：`0.2 ~ 3.0 s`
+
+单车安全测试：
+
+```powershell
+$body = @{
+  robot_codes = @("robot_001")
+  hazard_id = "B2-water-001"
+  reported_by_robot_code = "robot_001"
+  avoid_direction = "left"
+  linear_x = 0.04
+  angular_z = 0.22
+  duration = 1.0
+  reason = "B2通道疑似积水，低速左侧绕行"
+  require_all_ready = $true
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/hazards/avoidance" -ContentType "application/json" -Body $body
+```
+
+对所有在线车辆下发绕行：
+
+```powershell
+$body = @{
+  hazard_id = "B2-water-001"
+  reported_by_robot_code = "robot_001"
+  avoid_direction = "right"
+  linear_x = 0.04
+  angular_z = 0.22
+  duration = 1.0
+  reason = "B2通道右侧绕行通过"
+} | ConvertTo-Json -Compress -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/fleet/hazards/avoidance" -ContentType "application/json" -Body $body
+```
+
+观察命令结果：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/fleet/commands?robot_code=robot_001&limit=5"
+```
+
+如果车端 `ros_bridge` 和底盘都就绪，预期 `hazard_avoid` 最终 `status=acked`，车辆短时低速弧线绕行；如果未就绪，预期 `status=failed` 并带运动链路错误原因。

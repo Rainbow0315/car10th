@@ -22,6 +22,8 @@ from common.schemas.fleet import (
     FleetFormationRequest,
     FleetFormationResponse,
     FleetFormationSnapshot,
+    FleetHazardAvoidanceRequest,
+    FleetHazardAvoidanceResponse,
     FleetReadinessRequest,
     FleetReadinessResponse,
     FleetRescueApproachRequest,
@@ -368,6 +370,58 @@ def dispatch_corridor_yield(request: FleetCorridorYieldRequest):
         priority_robot_code=request.priority_robot_code,
         corridor_id=request.corridor_id,
         command=FleetCommandSnapshot.model_validate(command),
+    )
+
+
+@router.post(
+    "/hazards/avoidance",
+    response_model=FleetHazardAvoidanceResponse,
+    summary="Ask robots to avoid an underground hazard with a slow arc motion",
+)
+def dispatch_hazard_avoidance(request: FleetHazardAvoidanceRequest):
+    if request.robot_codes is None:
+        robot_codes = [
+            str(item["robot_code"])
+            for item in fleet_service.list_robots()
+            if item.get("status") == "online"
+        ]
+    else:
+        robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="no target robot available for hazard avoidance",
+        )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
+    angular_z = request.angular_z if request.avoid_direction == "left" else -request.angular_z
+    commands = [
+        FleetCommandSnapshot.model_validate(
+            _publish_fleet_command(
+                robot_code,
+                "hazard_avoid",
+                {
+                    "hazard_id": request.hazard_id,
+                    "reported_by_robot_code": request.reported_by_robot_code,
+                    "avoid_direction": request.avoid_direction,
+                    "reason": request.reason,
+                    "motion": {
+                        "linear_x": request.linear_x,
+                        "linear_y": 0.0,
+                        "angular_z": angular_z,
+                        "duration": request.duration,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+        )
+        for robot_code in robot_codes
+    ]
+    return FleetHazardAvoidanceResponse(
+        target_robots=robot_codes,
+        hazard_id=request.hazard_id,
+        reported_by_robot_code=request.reported_by_robot_code,
+        avoid_direction=request.avoid_direction,
+        commands=commands,
     )
 
 
