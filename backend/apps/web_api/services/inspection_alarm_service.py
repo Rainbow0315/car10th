@@ -180,9 +180,16 @@ class InspectionAlarmService:
         bbox = self._bbox(detection.get("bbox") or [])
         alarm_type = self._alarm_type(model_name=model_name, label=label)
         risk_level = self._risk_level(confidence=confidence, detection=detection)
+        dedup_key = self._dedup_key(
+            alarm_type=alarm_type,
+            robot_code=robot_code,
+            camera_code=camera_code,
+            bbox=bbox,
+            detected_at=detected_at,
+        )
 
         return AlarmLog(
-            alarm_no=self._alarm_no(alarm_type=alarm_type, detected_at=detected_at),
+            alarm_no=self._alarm_no(alarm_type=alarm_type, detected_at=detected_at, dedup_key=dedup_key),
             alarm_type=alarm_type,
             risk_level=risk_level,
             confidence=Decimal(str(round(max(0.0, min(1.0, confidence)), 4))),
@@ -199,13 +206,7 @@ class InspectionAlarmService:
             pos_yaw=None,
             map_name=None,
             status=AlarmStatus.pending,
-            dedup_key=self._dedup_key(
-                alarm_type=alarm_type,
-                robot_code=robot_code,
-                camera_code=camera_code,
-                bbox=bbox,
-                detected_at=detected_at,
-            ),
+            dedup_key=dedup_key,
             detected_at=detected_at,
             mqtt_pushed=0,
         )
@@ -271,8 +272,8 @@ class InspectionAlarmService:
             allowed = ", ".join(item.value for item in enum_type)
             raise ValueError(f"invalid {field_name}: {raw}. allowed: {allowed}") from exc
 
-    def _alarm_no(self, *, alarm_type: AlarmType, detected_at: datetime) -> str:
-        suffix = hashlib.sha1(f"{alarm_type.value}:{detected_at.timestamp()}".encode()).hexdigest()[:6]
+    def _alarm_no(self, *, alarm_type: AlarmType, detected_at: datetime, dedup_key: str) -> str:
+        suffix = hashlib.sha1(f"{alarm_type.value}:{detected_at.timestamp()}:{dedup_key}".encode()).hexdigest()[:6]
         return f"ALM{detected_at.strftime('%Y%m%d%H%M%S%f')[:-3]}{suffix}"
 
     def _dedup_key(
