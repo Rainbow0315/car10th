@@ -27,7 +27,7 @@ class RobotControlRequest(BaseModel):
     robot_code: str = Field(..., examples=["robot_001"])
     command: str = Field(
         ...,
-        description="cmd_vel | stop | patrol_start | patrol_stop | mode_follow",
+        description="cmd_vel | stop | patrol_start | patrol_stop | mode_follow | capture_image | start_recording | stop_recording | inspect_road",
         examples=["cmd_vel"],
     )
     payload: Dict[str, Any] = Field(default_factory=dict)

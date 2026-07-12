@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
     ros_bridge_http_url: str = "http://127.0.0.1:8001"
+    ai_service_http_url: str = "http://127.0.0.1:8002"
 
     llm_api_base: str = ""
     llm_api_key: str = ""
@@ -42,6 +43,18 @@ class Settings(BaseSettings):
 
     capture_img_dir: str = "./capture_img"
     cors_origins: List[str] = ["*"]
+    default_robot_code: str = "robot_001"
+    default_enabled_models: List[str] = ["crack", "puddle", "fod"]
+    detection_conf: float = 0.25
+    detection_iou: float = 0.45
+    inference_device: str = "cuda"
+    inspection_output_dir: str = str(BASE_DIR / "runtime" / "inspection")
+    stream_open_timeout_sec: float = 8.0
+    frame_grab_timeout_sec: float = 10.0
+    stream_warmup_frames: int = 5
+    model_crack: str = str(BASE_DIR / "apps/ai_service/weights/crack_detect.pt")
+    model_puddle: str = str(BASE_DIR / "apps/ai_service/weights/puddle_detect.pt")
+    model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
 
     @property
     def database_url(self) -> str:

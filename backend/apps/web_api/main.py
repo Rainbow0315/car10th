@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.web_api.routers import auth, robot, teleop
+from apps.web_api.routers import auth, inspection, robot, teleop
 from apps.web_api.services.mqtt_service import mqtt_service
 from common.config import settings
 
@@ -18,7 +18,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="园区智能巡检机器人 API",
-    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM / 遥控 / MQTT",
+    description="REST 业务网关：鉴权 / 告警 / 任务 / LLM / 遥控 / MQTT / AI 检测",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -45,3 +45,4 @@ def health_check():
 app.include_router(auth.router, prefix="/api/auth", tags=["鉴权"])
 app.include_router(teleop.router, prefix="/api/teleop", tags=["遥控"])
 app.include_router(robot.router, prefix="/api", tags=["小车与MQTT"])
+app.include_router(inspection.router, prefix="/api/inspection", tags=["道路检测"])

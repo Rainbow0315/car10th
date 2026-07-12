@@ -60,7 +60,7 @@ class _ControlPageState extends State<ControlPage> {
       if (!mounted || !showError) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('TCP 控车失败：$e'),
+          content: Text('MQTT 控制失败：$e'),
           duration: const Duration(seconds: 4),
         ),
       );

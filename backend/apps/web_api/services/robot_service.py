@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
+from apps.web_api.services.inspection_service import inspection_service
 from apps.web_api.services.teleop_service import teleop_service
 
 logger = logging.getLogger(__name__)
@@ -83,18 +84,41 @@ class RobotService:
                 "result": result,
             }
 
-        if command in {"patrol_start", "patrol_stop", "mode_follow"}:
+        if command == "inspect_road":
+            inspect_payload = dict(payload)
+            inspect_payload.setdefault("robot_code", robot_code)
+            result = inspection_service.detect_image(inspect_payload)
+            self.update_status(robot_code, status="online")
+            return {
+                "robot_code": robot_code,
+                "command": command,
+                "status": "completed",
+                "result": result,
+            }
+
+        if command in {"patrol_start", "patrol_stop", "mode_follow", "capture_image", "start_recording", "stop_recording"}:
             mode_map = {
                 "patrol_start": "patrol",
                 "patrol_stop": "idle",
                 "mode_follow": "follow",
+                "capture_image": self.get_status(robot_code).get("mode", "idle"),
+                "start_recording": self.get_status(robot_code).get("mode", "idle"),
+                "stop_recording": self.get_status(robot_code).get("mode", "idle"),
+            }
+            detail_map = {
+                "patrol_start": "指令已接收，巡航逻辑将在车端任务模块执行",
+                "patrol_stop": "指令已接收，巡航停止逻辑将在车端任务模块执行",
+                "mode_follow": "指令已接收，跟随逻辑将在车端任务模块执行",
+                "capture_image": "已预留拍照指令，明天接通摄像头后可由车端视觉流程落盘图片并触发 inspect_road",
+                "start_recording": "已预留开始录像指令，等待车端视频流程接入",
+                "stop_recording": "已预留结束录像指令，等待车端视频流程接入",
             }
             self.update_status(robot_code, status="online", mode=mode_map[command])
             return {
                 "robot_code": robot_code,
                 "command": command,
                 "status": "accepted",
-                "detail": "指令已接收，巡检/跟随逻辑将在 patrol_task 模块实现",
+                "detail": detail_map[command],
             }
 
         raise HTTPException(
