@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
@@ -20,6 +21,33 @@ class InspectionService:
 
     def detect_ros_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/inspection/detect-ros-image", json=payload)
+
+    def download_frame(self, image_path: str, output_dir: str) -> Optional[str]:
+        if not image_path:
+            return None
+        output_root = Path(output_dir)
+        output_root.mkdir(parents=True, exist_ok=True)
+        target = output_root / Path(image_path).name
+        url = f"{settings.ai_service_http_url.rstrip('/')}/api/inspection/frame"
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.get(url, params={"image_path": image_path})
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        target.write_bytes(response.content)
+        return str(target)
+
+    def delete_frame(self, image_path: str) -> bool:
+        if not image_path:
+            return False
+        url = f"{settings.ai_service_http_url.rstrip('/')}/api/inspection/frame"
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.delete(url, params={"image_path": image_path})
+        except httpx.HTTPError:
+            return False
+        return response.is_success
 
     def _request(self, method: str, path: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{settings.ai_service_http_url.rstrip('/')}{path}"

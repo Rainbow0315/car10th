@@ -9,6 +9,7 @@ backend/**/__pycache__/
 backend/.env
 docker-compose.cloud-local.yml
 backend/.run/
+backend/runtime/
 backend/capture_img/*
 !backend/capture_img/.gitkeep
 backend/.venv/

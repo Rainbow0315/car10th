@@ -114,11 +114,14 @@ class InspectionMonitorService:
 
         summary = result.get("summary") or {}
         if not summary.get("has_risk"):
+            self._delete_remote_frame(result)
             inspection_alarm_service.remove_non_risk_frame(result)
             return {"result": result, "alarms": []}
 
+        self._download_risk_frame(result)
         with SessionLocal() as db:
             alarms = inspection_alarm_service.create_alarms_from_result(db, result, publish_mqtt=True)
+        self._delete_remote_frame(result)
 
         self._total_alarm_frames += 1
         self._total_alarms += len(alarms)
@@ -127,6 +130,22 @@ class InspectionMonitorService:
             "result": result,
             "alarms": [inspection_alarm_service.to_response(alarm).model_dump(mode="json") for alarm in alarms],
         }
+
+    def _download_risk_frame(self, result: Dict[str, Any]) -> None:
+        if not settings.inspection_monitor_download_frames:
+            return
+        remote_path = str(result.get("image_path") or "")
+        local_path = inspection_service.download_frame(remote_path, settings.inspection_monitor_local_frame_dir)
+        if local_path:
+            result["remote_image_path"] = remote_path
+            result["image_path"] = local_path
+
+    def _delete_remote_frame(self, result: Dict[str, Any]) -> None:
+        if not settings.inspection_monitor_download_frames:
+            return
+        remote_path = str(result.get("remote_image_path") or result.get("image_path") or "")
+        if remote_path:
+            inspection_service.delete_frame(remote_path)
 
 
 inspection_monitor_service = InspectionMonitorService()

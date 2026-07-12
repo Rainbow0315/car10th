@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     inspection_monitor_robot_code: str = "robot_001"
     inspection_monitor_camera_code: str = "usb_cam"
     inspection_monitor_output_dir: str = str(BASE_DIR / "runtime" / "inspection" / "monitor_frames")
+    inspection_monitor_local_frame_dir: str = str(BASE_DIR / "runtime" / "inspection" / "cloud_frames")
+    inspection_monitor_download_frames: bool = False
 
     @property
     def database_url(self) -> str:
