@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../app/session.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
+import '../alarm/alarm_labels.dart';
 import '../chat/chat_page.dart';
 import '../control/control_page.dart';
 import '../history/history_page.dart';
@@ -32,16 +33,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   String _alarmTypeLabel(AlarmType t) {
-    switch (t) {
-      case AlarmType.water:
-        return '积水';
-      case AlarmType.crack:
-        return '裂缝';
-      case AlarmType.debris:
-        return '异物';
-      case AlarmType.smoking:
-        return '抽烟';
-    }
+    return alarmTypeLabel(t);
   }
 
   String _modeLabel(RobotMode m) {
@@ -84,7 +76,7 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Monitor command failed: $e')),
+        SnackBar(content: Text('检测监控指令失败：$e')),
       );
     } finally {
       if (mounted) setState(() => _monitorBusy = false);
@@ -110,7 +102,7 @@ class _DashboardPageState extends State<DashboardPage> {
               future: _monitorFuture,
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
-                  return const _LoadingCard(title: 'Inspection monitor');
+                  return const _LoadingCard(title: '检测监控');
                 }
                 return _MonitorCard(
                   status: snapshot.data!,
@@ -227,8 +219,7 @@ class _MonitorCard extends StatelessWidget {
                 Icon(Icons.visibility_outlined, color: stateColor),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Inspection monitor',
-                      style: theme.textTheme.titleMedium),
+                  child: Text('检测监控', style: theme.textTheme.titleMedium),
                 ),
                 Switch(
                   value: status.running,
@@ -240,22 +231,24 @@ class _MonitorCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                    child: _Metric(label: 'Topic', value: status.topicName)),
+                    child: _Metric(label: '图像话题', value: status.topicName)),
                 Expanded(
-                    child: _Metric(
-                        label: 'Frames', value: '${status.totalFrames}')),
+                    child:
+                        _Metric(label: '已检测', value: '${status.totalFrames}')),
                 Expanded(
-                    child: _Metric(
-                        label: 'Alarms', value: '${status.totalAlarms}')),
+                    child:
+                        _Metric(label: '告警数', value: '${status.totalAlarms}')),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               status.lastError?.isNotEmpty == true
-                  ? 'Last error: ${status.lastError}'
-                  : 'Interval ${status.intervalSec.toStringAsFixed(1)}s, risk frames ${status.totalAlarmFrames}',
+                  ? '最近错误：${status.lastError}'
+                  : '间隔 ${status.intervalSec.toStringAsFixed(1)} 秒，风险帧 ${status.totalAlarmFrames}',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: cs.onSurfaceVariant),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -371,10 +364,16 @@ class _Metric extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(value,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.headlineSmall
                 ?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
         Text(label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],

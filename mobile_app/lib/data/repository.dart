@@ -59,10 +59,20 @@ abstract class Repository {
   Future<void> stopRobot();
 
   Future<String> chat(String prompt);
+
+  void dispose() {}
 }
 
 class TcpCarRepository extends MockRepository {
+  static const _connectTimeout = Duration(seconds: 2);
+  static const _sendTimeout = Duration(seconds: 2);
+
   final AppSettings settings;
+  Socket? _socket;
+  String? _socketHost;
+  int? _socketPort;
+  Future<void> _sendChain = Future.value();
+  bool _disposed = false;
 
   TcpCarRepository({required this.settings});
 
@@ -163,27 +173,76 @@ class TcpCarRepository extends MockRepository {
     await _send(_encode('15', [_byteHex(direction.value)]));
   }
 
-  Future<void> _send(String message) async {
-    Socket? socket;
+  Future<void> _send(String message) {
+    if (_disposed) {
+      throw StateError('TCP car repository has been disposed');
+    }
+    final pending = _sendChain.then((_) => _sendLocked(message));
+    _sendChain = pending.catchError((_) {});
+    return pending;
+  }
+
+  Future<void> _sendLocked(String message) async {
     try {
-      socket = await Socket.connect(
-        settings.tcpHost,
-        settings.tcpPort,
-        timeout: const Duration(seconds: 2),
-      );
+      final socket = await _ensureSocket();
       socket.add(ascii.encode(message));
-      await socket.flush().timeout(const Duration(seconds: 2));
+      await socket.flush().timeout(_sendTimeout);
     } on SocketException catch (e) {
+      _dropSocket();
       throw StateError(
         'Cannot connect to car TCP ${settings.tcpHost}:${settings.tcpPort}: ${e.message}',
       );
     } on TimeoutException {
+      _dropSocket();
       throw TimeoutException(
         'TCP command timed out: ${settings.tcpHost}:${settings.tcpPort}',
       );
-    } finally {
-      socket?.destroy();
     }
+  }
+
+  Future<Socket> _ensureSocket() async {
+    final host = settings.tcpHost;
+    final port = settings.tcpPort;
+    final current = _socket;
+    if (current != null && _socketHost == host && _socketPort == port) {
+      return current;
+    }
+
+    _dropSocket();
+    final socket = await Socket.connect(
+      host,
+      port,
+      timeout: _connectTimeout,
+    );
+    socket.setOption(SocketOption.tcpNoDelay, true);
+    _socket = socket;
+    _socketHost = host;
+    _socketPort = port;
+    unawaited(
+      socket.done.catchError((_) {}).whenComplete(() {
+        if (identical(_socket, socket)) {
+          _socket = null;
+          _socketHost = null;
+          _socketPort = null;
+        }
+      }),
+    );
+    return socket;
+  }
+
+  void _dropSocket() {
+    final socket = _socket;
+    _socket = null;
+    _socketHost = null;
+    _socketPort = null;
+    socket?.destroy();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _dropSocket();
+    super.dispose();
   }
 
   String _encode(String command, List<String> dataParts) {
@@ -521,6 +580,9 @@ class MockRepository implements Repository {
   MockRepository() {
     _seed();
   }
+
+  @override
+  void dispose() {}
 
   void _seed() {
     _waypoints.addAll([

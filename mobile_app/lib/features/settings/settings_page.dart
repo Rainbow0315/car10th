@@ -60,13 +60,13 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Cloud API', style: theme.textTheme.titleSmall),
+                  Text('后端接口', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _apiBaseUrl,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
-                      labelText: 'web_api base URL',
+                      labelText: '接口地址',
                       hintText: 'http://192.168.247.8:8000',
                       border: OutlineInputBorder(),
                     ),
@@ -78,11 +78,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                            content: Text('Saved API: ${settings.apiBaseUrl}')),
+                            content: Text('已保存接口地址：${settings.apiBaseUrl}')),
                       );
                     },
                     icon: const Icon(Icons.cloud_sync_outlined),
-                    label: const Text('Save API URL'),
+                    label: const Text('保存接口地址'),
                   ),
                 ],
               ),
@@ -226,10 +226,17 @@ class _KvRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(k, style: theme.textTheme.bodyMedium),
-          Text(
-            v,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              v,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

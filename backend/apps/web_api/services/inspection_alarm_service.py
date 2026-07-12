@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.orm import Session
 
+from common.config.settings import settings
 from apps.web_api.services.mqtt_service import mqtt_service
 from common.models.entities import AlarmLog, AlarmStatus, AlarmType, RiskLevel
 from common.schemas.inspection import AlarmLogResponse
@@ -37,6 +38,9 @@ class InspectionAlarmService:
             if not isinstance(detector_result, dict) or detector_result.get("error"):
                 continue
             for detection in detector_result.get("detections") or []:
+                confidence = self._confidence(detection)
+                if confidence < settings.inspection_alarm_min_confidence:
+                    continue
                 alarm = self._build_alarm(
                     image_path=image_path,
                     robot_code=robot_code,
@@ -78,6 +82,7 @@ class InspectionAlarmService:
         limit: int = 50,
     ) -> List[AlarmLog]:
         query = db.query(AlarmLog)
+        query = query.filter(AlarmLog.confidence >= settings.inspection_alarm_min_confidence)
         if status:
             query = query.filter(AlarmLog.status == self._parse_enum(AlarmStatus, status, "status"))
         if alarm_type:
@@ -176,7 +181,7 @@ class InspectionAlarmService:
         detection: Dict[str, Any],
     ) -> AlarmLog:
         label = str(detection.get("label") or model_name)
-        confidence = float(detection.get("confidence") or 0)
+        confidence = self._confidence(detection)
         bbox = self._bbox(detection.get("bbox") or [])
         alarm_type = self._alarm_type(model_name=model_name, label=label)
         risk_level = self._risk_level(confidence=confidence, detection=detection)
@@ -233,6 +238,12 @@ class InspectionAlarmService:
         if confidence >= 0.5:
             return RiskLevel.medium
         return RiskLevel.low
+
+    def _confidence(self, detection: Dict[str, Any]) -> float:
+        try:
+            return float(detection.get("confidence") or 0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _bbox(self, values: Iterable[Any]) -> List[float]:
         bbox = []

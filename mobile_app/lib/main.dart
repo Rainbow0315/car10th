@@ -22,6 +22,7 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: session),
         Provider<Repository>(
           create: (_) => CloudRepository(settings: settings),
+          dispose: (_, repo) => repo.dispose(),
         ),
       ],
       child: const App(),
