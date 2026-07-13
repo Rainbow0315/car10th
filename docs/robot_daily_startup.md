@@ -68,6 +68,9 @@ cd /root/car10th/backend
 nohup python3 -m apps.ros_bridge.main \
   > /tmp/ros_bridge.log 2>&1 &
 
+nohup python3 -m apps.tcp_car_bridge.main \
+  > /tmp/tcp_car_bridge.log 2>&1 &
+
 nohup uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
   > /tmp/web_api.log 2>&1 &
 ```
@@ -76,9 +79,17 @@ nohup uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
 
 ```bash
 curl http://127.0.0.1:8001/health
+ss -lntp | grep ':6001'
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/slam/map
 curl "http://127.0.0.1:8000/api/inspection/alarms?limit=3"
+```
+
+需要在车端单独验证灯光秀时运行：
+
+```bash
+cd /root/car10th/backend
+python3 scripts/light_show.py
 ```
 
 Windows 上也可以验证：

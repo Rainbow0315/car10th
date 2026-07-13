@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
+from typing import Optional, Sequence
 
 try:
     import rclpy
     from geometry_msgs.msg import Twist
     from rclpy.executors import SingleThreadedExecutor
+    from std_msgs.msg import Int32
 except ImportError:  # pragma: no cover - only happens outside ROS runtime
     rclpy = None
     Twist = None
     SingleThreadedExecutor = None
+    Int32 = None
 
 
 class RosRuntimeUnavailableError(RuntimeError):
@@ -19,7 +21,12 @@ class RosRuntimeUnavailableError(RuntimeError):
 
 
 class CmdVelPublisher:
-    def __init__(self, topic_name: str = "/cmd_vel", node_name: str = "ros_bridge_cmd_vel") -> None:
+    def __init__(
+        self,
+        topic_name: str = "/cmd_vel",
+        node_name: str = "ros_bridge_cmd_vel",
+        int32_topics: Optional[Sequence[str]] = None,
+    ) -> None:
         if rclpy is None or Twist is None or SingleThreadedExecutor is None:
             raise RosRuntimeUnavailableError(
                 "ROS 2 Python runtime is unavailable. Please source the ROS 2 environment on the robot first."
@@ -32,6 +39,7 @@ class CmdVelPublisher:
         self._node_name = node_name
         self._active_stop_event: Optional[threading.Event] = None
         self._active_thread: Optional[threading.Thread] = None
+        self._int32_publishers = {}
 
         if not rclpy.ok():
             rclpy.init()
@@ -39,6 +47,14 @@ class CmdVelPublisher:
 
         self._node = rclpy.create_node(node_name)
         self._publisher = self._node.create_publisher(Twist, topic_name, 10)
+        for int32_topic in int32_topics or ():
+            if Int32 is None:
+                raise RosRuntimeUnavailableError("ROS 2 std_msgs runtime is unavailable.")
+            self._int32_publishers[int32_topic] = self._node.create_publisher(
+                Int32,
+                int32_topic,
+                10,
+            )
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
@@ -105,6 +121,34 @@ class CmdVelPublisher:
     def stop(self) -> None:
         self._cancel_active_motion()
         self._publish_repeated(0.0, 0.0, 0.0, repeat=3)
+
+    def publish_int32(
+        self,
+        topic_name: str,
+        value: int,
+        repeat: int = 3,
+        wait_for_subscriber_timeout: float = 1.0,
+    ) -> None:
+        if Int32 is None:
+            raise RosRuntimeUnavailableError("ROS 2 std_msgs runtime is unavailable.")
+
+        with self._lock:
+            self._ensure_open()
+            publisher = self._int32_publishers.get(topic_name)
+            if publisher is None:
+                publisher = self._node.create_publisher(Int32, topic_name, 10)
+                self._int32_publishers[topic_name] = publisher
+            deadline = time.monotonic() + max(0.0, wait_for_subscriber_timeout)
+            while (
+                publisher.get_subscription_count() < 1
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.05)
+            message = Int32()
+            message.data = int(value)
+            for _ in range(max(1, repeat)):
+                publisher.publish(message)
+                time.sleep(0.03)
 
     def close(self) -> None:
         active_thread = self._cancel_active_motion()

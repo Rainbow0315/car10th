@@ -100,12 +100,7 @@ class _ControlPageState extends State<ControlPage> {
     Future<void> Function(Repository repo) action,
   ) {
     _startRepeating(
-      () => _send(
-        label,
-        action,
-        showBusy: false,
-        showError: false,
-      ),
+      () => _send(label, action, showBusy: false, showError: false),
     );
   }
 
@@ -242,6 +237,10 @@ class _ControlPageState extends State<ControlPage> {
     setState(() => _monitorFuture = _repo.getInspectionMonitorStatus());
   }
 
+  Future<void> _setLight(String label, RobotLightEffect effect) {
+    return _send(label, (repo) => repo.setLightEffect(effect), toast: true);
+  }
+
   @override
   void dispose() {
     _repeatTimer?.cancel();
@@ -276,6 +275,86 @@ class _ControlPageState extends State<ControlPage> {
           ),
           const SizedBox(height: 12),
           _buildCameraInspectionCard(theme),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('灯光控制', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _LightEffectButton(
+                        label: '关闭',
+                        icon: Icons.lightbulb_outline,
+                        onPressed: () =>
+                            _setLight('关闭灯光', RobotLightEffect.off),
+                      ),
+                      _LightEffectButton(
+                        label: '流水',
+                        icon: Icons.waves,
+                        onPressed: () =>
+                            _setLight('流水灯', RobotLightEffect.running),
+                      ),
+                      _LightEffectButton(
+                        label: '跑马',
+                        icon: Icons.animation,
+                        onPressed: () =>
+                            _setLight('跑马灯', RobotLightEffect.marquee),
+                      ),
+                      _LightEffectButton(
+                        label: '呼吸',
+                        icon: Icons.brightness_6_outlined,
+                        onPressed: () =>
+                            _setLight('呼吸灯', RobotLightEffect.breathing),
+                      ),
+                      _LightEffectButton(
+                        label: '渐变',
+                        icon: Icons.gradient,
+                        onPressed: () =>
+                            _setLight('渐变灯', RobotLightEffect.gradient),
+                      ),
+                      _LightEffectButton(
+                        label: '星光',
+                        icon: Icons.auto_awesome,
+                        onPressed: () =>
+                            _setLight('星光灯', RobotLightEffect.starlight),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () => _send(
+                          '启动灯光秀',
+                          (repo) => repo.startLightShow(),
+                          toast: true,
+                        ),
+                        icon: const Icon(Icons.music_note),
+                        label: const Text('开始灯光秀'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _send(
+                          '停止灯光秀',
+                          (repo) => repo.stopLightShow(),
+                          toast: true,
+                        ),
+                        icon: const Icon(Icons.stop_circle_outlined),
+                        label: const Text('停止灯光秀'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           Card(
             child: Padding(
@@ -951,11 +1030,7 @@ class _VectorMotion {
   final double x;
   final double y;
 
-  const _VectorMotion({
-    required this.stick,
-    required this.x,
-    required this.y,
-  });
+  const _VectorMotion({required this.stick, required this.x, required this.y});
 }
 
 class _TapCommandButton extends StatelessWidget {
@@ -979,6 +1054,31 @@ class _TapCommandButton extends StatelessWidget {
   }
 }
 
+class _LightEffectButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _LightEffectButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 104,
+      height: 44,
+      child: FilledButton.tonalIcon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 19),
+        label: Text(label),
+      ),
+    );
+  }
+}
+
 class _CommandSurface extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -996,8 +1096,9 @@ class _CommandSurface extends StatelessWidget {
     final colors = theme.colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color:
-            filled ? colors.primaryContainer : colors.surfaceContainerHighest,
+        color: filled
+            ? colors.primaryContainer
+            : colors.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colors.outlineVariant),
       ),
@@ -1032,12 +1133,10 @@ class _JoystickPad extends StatelessWidget {
         const size = 220.0;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanDown: (details) => unawaited(
-            onMove(details.localPosition, const Size(size, size)),
-          ),
-          onPanUpdate: (details) => unawaited(
-            onMove(details.localPosition, const Size(size, size)),
-          ),
+          onPanDown: (details) =>
+              unawaited(onMove(details.localPosition, const Size(size, size))),
+          onPanUpdate: (details) =>
+              unawaited(onMove(details.localPosition, const Size(size, size))),
           onPanEnd: (_) => unawaited(onRelease()),
           onPanCancel: () => unawaited(onRelease()),
           child: SizedBox.square(
@@ -1052,9 +1151,15 @@ class _JoystickPad extends StatelessWidget {
                 alignment: Alignment.center,
                 children: [
                   Container(
-                      width: 2, height: 170, color: colors.outlineVariant),
+                    width: 2,
+                    height: 170,
+                    color: colors.outlineVariant,
+                  ),
                   Container(
-                      width: 170, height: 2, color: colors.outlineVariant),
+                    width: 170,
+                    height: 2,
+                    color: colors.outlineVariant,
+                  ),
                   Transform.translate(
                     offset: stick,
                     child: DecoratedBox(
@@ -1106,10 +1211,7 @@ class _WheelSlider extends StatelessWidget {
         ),
         SizedBox(
           width: 42,
-          child: Text(
-            '${(value * 100).round()}',
-            textAlign: TextAlign.end,
-          ),
+          child: Text('${(value * 100).round()}', textAlign: TextAlign.end),
         ),
       ],
     );

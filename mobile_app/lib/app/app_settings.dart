@@ -6,10 +6,11 @@ class AppSettings extends ChangeNotifier {
   static const _kTcpPortKey = 'settings.tcpPort';
   static const _kApiBaseUrlKey = 'settings.apiBaseUrl';
   static const _defaultTcpHost = '192.168.137.239';
+  static const _defaultTcpPort = 6001;
   static const _defaultApiBaseUrl = 'http://192.168.137.51:8000';
 
   String _tcpHost = _defaultTcpHost;
-  int _tcpPort = 6000;
+  int _tcpPort = _defaultTcpPort;
   String _apiBaseUrl = _defaultApiBaseUrl;
 
   String get tcpHost => _tcpHost;
@@ -19,7 +20,13 @@ class AppSettings extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _tcpHost = prefs.getString(_kTcpHostKey) ?? _tcpHost;
-    _tcpPort = prefs.getInt(_kTcpPortKey) ?? _tcpPort;
+    final savedTcpPort = prefs.getInt(_kTcpPortKey);
+    _tcpPort = savedTcpPort == null || savedTcpPort == 6000
+        ? _defaultTcpPort
+        : savedTcpPort;
+    if (savedTcpPort == 6000) {
+      await prefs.setInt(_kTcpPortKey, _defaultTcpPort);
+    }
     _apiBaseUrl = prefs.getString(_kApiBaseUrlKey) ?? _apiBaseUrl;
     notifyListeners();
   }
@@ -56,7 +63,7 @@ class AppSettings extends ChangeNotifier {
     await prefs.remove(_kTcpPortKey);
     await prefs.remove(_kApiBaseUrlKey);
     _tcpHost = _defaultTcpHost;
-    _tcpPort = 6000;
+    _tcpPort = _defaultTcpPort;
     _apiBaseUrl = _defaultApiBaseUrl;
     notifyListeners();
   }

@@ -112,7 +112,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'TCP 端口',
-                      hintText: '6000',
+                      hintText: '6001',
                       border: OutlineInputBorder(),
                     ),
                   ),
