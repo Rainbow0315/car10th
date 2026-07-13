@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from threading import Lock
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException, status
@@ -20,6 +21,7 @@ from common.schemas.llm import (
     LlmTaskPlanRequest,
     LlmTaskPlanResponse,
     LlmTaskPlanStep,
+    LlmRuntimeStatusResponse,
     LlmToolListResponse,
     LlmToolSpec,
 )
@@ -33,6 +35,17 @@ class LlmTaskService:
 
     def list_tools(self, robot_codes: Optional[list[str]] = None) -> LlmToolListResponse:
         return LlmToolListResponse(tools=self._tools_with_availability(robot_codes or ["robot_001"]))
+
+    def runtime_status(self) -> LlmRuntimeStatusResponse:
+        configured = bool(settings.llm_api_key and settings.llm_api_base)
+        api_base_host = self._api_base_host(settings.llm_api_base)
+        return LlmRuntimeStatusResponse(
+            llm_configured=configured,
+            api_base_host=api_base_host,
+            model=settings.llm_model,
+            planner_mode="llm" if configured else "rule_fallback",
+            message="真实 LLM 网关已配置。" if configured else "未配置 LLM_API_BASE 或 LLM_API_KEY，当前使用规则兜底。",
+        )
 
     async def plan(self, request: LlmTaskPlanRequest) -> LlmTaskPlanResponse:
         robot_context = self._robot_context(request.robot_codes)
@@ -499,6 +512,14 @@ class LlmTaskService:
         if api_key:
             message = message.replace(api_key, "***")
         return message[:240]
+
+    def _api_base_host(self, api_base: str) -> Optional[str]:
+        if not api_base:
+            return None
+        parsed = urlparse(api_base)
+        if parsed.hostname:
+            return parsed.hostname
+        return "configured"
 
 
 llm_task_service = LlmTaskService()

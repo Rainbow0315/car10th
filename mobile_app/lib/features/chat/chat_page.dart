@@ -16,11 +16,36 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = [];
   bool _loading = false;
   String? _executingPlanId;
+  LlmRuntimeStatus? _runtimeStatus;
+  String? _runtimeStatusError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRuntimeStatus();
+  }
 
   @override
   void dispose() {
     _input.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadRuntimeStatus() async {
+    try {
+      final status = await context.read<Repository>().getLlmRuntimeStatus();
+      if (!mounted) return;
+      setState(() {
+        _runtimeStatus = status;
+        _runtimeStatusError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _runtimeStatus = null;
+        _runtimeStatusError = error.toString();
+      });
+    }
   }
 
   Future<void> _send() async {
@@ -146,28 +171,38 @@ class _ChatPageState extends State<ChatPage> {
                 if (index == 0) {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('你可以这样说',
-                                style: theme.textTheme.titleSmall),
-                            const SizedBox(height: 8),
-                            const Text('1) 查询 robot_001 现在是否在线'),
-                            const Text('2) 急停 robot_001'),
-                            const Text('3) 让 robot_001 核验 B2 消防通道的沪A12345'),
-                            const SizedBox(height: 8),
-                            Text(
-                              '涉及运动的计划会先展示给你确认，不会自动执行。',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
+                    child: Column(
+                      children: [
+                        _RuntimeStatusCard(
+                          status: _runtimeStatus,
+                          error: _runtimeStatusError,
+                          onRefresh: _loadRuntimeStatus,
                         ),
-                      ),
+                        const SizedBox(height: 10),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('你可以这样说',
+                                    style: theme.textTheme.titleSmall),
+                                const SizedBox(height: 8),
+                                const Text('1) 查询 robot_001 现在是否在线'),
+                                const Text('2) 急停 robot_001'),
+                                const Text('3) 让 robot_001 核验 B2 消防通道的沪A12345'),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '涉及运动的计划会先展示给你确认，不会自动执行。',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }
@@ -214,6 +249,83 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _RuntimeStatusCard extends StatelessWidget {
+  final LlmRuntimeStatus? status;
+  final String? error;
+  final VoidCallback onRefresh;
+
+  const _RuntimeStatusCard({
+    required this.status,
+    required this.error,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final configured = status?.llmConfigured == true;
+    final color = error != null
+        ? theme.colorScheme.error
+        : configured
+            ? Colors.green
+            : theme.colorScheme.secondary;
+    final title = error != null
+        ? 'LLM 状态读取失败'
+        : configured
+            ? '真实 LLM 已接入'
+            : '当前使用规则兜底';
+    final detail = error ??
+        (status == null
+            ? '正在检查后端 LLM 配置…'
+            : '${status!.message}${status!.apiBaseHost == null ? '' : ' 网关：${status!.apiBaseHost}'}');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              configured ? Icons.cloud_done_outlined : Icons.rule_outlined,
+              color: color,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    detail,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (status != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '模式：${status!.plannerMode} · 模型：${status!.model}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: '刷新状态',
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
       ),
     );
   }

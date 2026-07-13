@@ -61,6 +61,7 @@ abstract class Repository {
   Future<void> stopRobot();
 
   Future<String> chat(String prompt);
+  Future<LlmRuntimeStatus> getLlmRuntimeStatus();
   Future<LlmTaskPlan> planLlmTask(String prompt);
   Future<LlmTaskPlan> executeLlmTask({
     required String planId,
@@ -333,6 +334,12 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
+  Future<LlmRuntimeStatus> getLlmRuntimeStatus() async {
+    final json = await _getJson('/api/llm/status') as Map<String, dynamic>;
+    return _llmRuntimeStatusFromJson(json);
+  }
+
+  @override
   Future<LlmTaskPlan> planLlmTask(String prompt) async {
     final json = await _postJson('/api/llm/tasks/plan', {
       'message': prompt,
@@ -534,6 +541,16 @@ class CloudRepository extends TcpCarRepository {
       steps: (json['steps'] as List? ?? const [])
           .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
           .toList(),
+    );
+  }
+
+  LlmRuntimeStatus _llmRuntimeStatusFromJson(Map<String, dynamic> json) {
+    return LlmRuntimeStatus(
+      llmConfigured: json['llm_configured'] == true,
+      apiBaseHost: json['api_base_host']?.toString(),
+      model: json['model']?.toString() ?? '',
+      plannerMode: json['planner_mode']?.toString() ?? 'rule_fallback',
+      message: json['message']?.toString() ?? '',
     );
   }
 
@@ -1088,6 +1105,18 @@ class MockRepository implements Repository {
       '后续可接入后端网关：根据区域/时间筛选告警，并生成巡检报告。',
     ].join('\n');
     return _delay(reply);
+  }
+
+  @override
+  Future<LlmRuntimeStatus> getLlmRuntimeStatus() async {
+    return _delay(
+      const LlmRuntimeStatus(
+        llmConfigured: false,
+        model: 'mock',
+        plannerMode: 'rule_fallback',
+        message: 'Mock 模式：未连接真实 LLM，当前只演示安全规划流程。',
+      ),
+    );
   }
 
   @override

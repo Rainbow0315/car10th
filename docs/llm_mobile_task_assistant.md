@@ -33,6 +33,8 @@ LLM_API_KEY=你的-api-key
 LLM_MODEL=你的模型名
 ```
 
+注意：Codex/ChatGPT 内部正在使用的 API Key 不会暴露给项目代码。这里必须填写你自己的 OpenAI-compatible 网关地址和 Key；如果为空，系统会安全地使用规则兜底。
+
 `LLM_API_BASE` 也可以直接填写完整 chat completions 地址，例如：
 
 ```env
@@ -47,6 +49,24 @@ LLM_API_BASE=https://你的服务地址/v1/chat/completions
 - “护送 robot_001 返回维修区”
 
 ## 后端接口
+
+查询 LLM 运行状态，不返回 API Key：
+
+```http
+GET /api/llm/status
+```
+
+返回示例：
+
+```json
+{
+  "llm_configured": false,
+  "api_base_host": null,
+  "model": "qwen-plus",
+  "planner_mode": "rule_fallback",
+  "message": "未配置 LLM_API_BASE 或 LLM_API_KEY，当前使用规则兜底。"
+}
+```
 
 查询工具白名单：
 

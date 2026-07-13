@@ -80,3 +80,11 @@ class LlmTaskExecuteResponse(BaseModel):
 
 class LlmToolListResponse(BaseModel):
     tools: list[LlmToolSpec]
+
+
+class LlmRuntimeStatusResponse(BaseModel):
+    llm_configured: bool
+    api_base_host: Optional[str] = None
+    model: str
+    planner_mode: Literal["llm", "rule_fallback"]
+    message: str

@@ -262,6 +262,22 @@ class LlmTaskPlan {
   }
 }
 
+class LlmRuntimeStatus {
+  final bool llmConfigured;
+  final String? apiBaseHost;
+  final String model;
+  final String plannerMode;
+  final String message;
+
+  const LlmRuntimeStatus({
+    required this.llmConfigured,
+    this.apiBaseHost,
+    required this.model,
+    required this.plannerMode,
+    required this.message,
+  });
+}
+
 class LlmPlanStep {
   final String stepId;
   final String tool;

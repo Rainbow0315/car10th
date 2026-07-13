@@ -33,6 +33,25 @@ def install_lightweight_stubs() -> None:
             HTTP_404_NOT_FOUND=404,
             HTTP_409_CONFLICT=409,
         )
+
+        class APIRouter:
+            def get(self, *args, **kwargs):
+                def decorator(func):
+                    return func
+
+                return decorator
+
+            def post(self, *args, **kwargs):
+                def decorator(func):
+                    return func
+
+                return decorator
+
+        def Query(default=None, *args, **kwargs):
+            return default
+
+        fastapi.APIRouter = APIRouter
+        fastapi.Query = Query
         sys.modules["fastapi"] = fastapi
 
     if "httpx" not in sys.modules:
@@ -113,10 +132,29 @@ async def run_tests() -> None:
     assert plate_verify.available is False
     assert plate_verify.unavailable_reason == "not all target robots are ready"
 
+    status = service.runtime_status()
+    assert status.llm_configured is False
+    assert status.planner_mode == "rule_fallback"
+
+    from apps.web_api.services import llm_task_service as llm_module
+
+    llm_module.settings.llm_api_base = "https://example.com/v1/chat/completions?token=secret-key-for-test"
+    configured_status = service.runtime_status()
+    assert configured_status.llm_configured is True
+    assert configured_status.planner_mode == "llm"
+    assert configured_status.api_base_host == "example.com"
+    assert "secret-key-for-test" not in configured_status.model
+    assert "secret-key-for-test" not in configured_status.message
+
     unsafe_steps = service._steps_from_llm(
         [{"tool": "fleet.plate_verify", "arguments": {"verifier_robot_code": "robot_001"}}]
     )
     assert unsafe_steps == []
+
+    from apps.web_api.routers import llm as llm_router
+
+    route_status = llm_router.get_llm_runtime_status()
+    assert route_status.llm_configured is True
 
     redacted = service._safe_error(RuntimeError("bad secret-key-for-test"))
     assert "secret-key-for-test" not in redacted
