@@ -319,8 +319,14 @@ class TcpCarRepository extends MockRepository {
 class CloudRepository extends TcpCarRepository {
   CloudRepository({required super.settings});
 
-  Uri _uri(String path, [Map<String, String?> query = const {}]) {
-    final base = settings.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+  Uri _uri(
+    String path, [
+    Map<String, String?> query = const {},
+  ], {
+    String? baseUrl,
+  }) {
+    final base =
+        (baseUrl ?? settings.apiBaseUrl).replaceAll(RegExp(r'/+$'), '');
     final cleanPath = path.startsWith('/') ? path : '/$path';
     final params = <String, String>{};
     for (final entry in query.entries) {
@@ -359,17 +365,23 @@ class CloudRepository extends TcpCarRepository {
   Future<dynamic> _getJson(
     String path, [
     Map<String, String?> query = const {},
-  ]) async {
+  ], {
+    String? baseUrl,
+  }) async {
     final response = await http
-        .get(_uri(path, query))
+        .get(_uri(path, query, baseUrl: baseUrl))
         .timeout(const Duration(seconds: 10));
     return _decode(response);
   }
 
-  Future<dynamic> _postJson(String path, Map<String, Object?> body) async {
+  Future<dynamic> _postJson(
+    String path,
+    Map<String, Object?> body, {
+    String? baseUrl,
+  }) async {
     final response = await http
         .post(
-          _uri(path),
+          _uri(path, baseUrl: baseUrl),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(body),
         )
@@ -401,18 +413,25 @@ class CloudRepository extends TcpCarRepository {
 
   @override
   Future<LlmRuntimeStatus> getLlmRuntimeStatus() async {
-    final json = await _getJson('/api/llm/status') as Map<String, dynamic>;
+    final json = await _getJson(
+      '/api/llm/status',
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     return _llmRuntimeStatusFromJson(json);
   }
 
   @override
   Future<LlmTaskPlan> planLlmTask(String prompt) async {
-    final json = await _postJson('/api/llm/tasks/plan', {
-      'message': prompt,
-      'robot_codes': ['robot_001'],
-      'allow_llm': true,
-      'auto_execute': false,
-    }) as Map<String, dynamic>;
+    final json = await _postJson(
+      '/api/llm/tasks/plan',
+      {
+        'message': prompt,
+        'robot_codes': ['robot_001'],
+        'allow_llm': true,
+        'auto_execute': false,
+      },
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     return _llmPlanFromJson(json);
   }
 
@@ -421,9 +440,13 @@ class CloudRepository extends TcpCarRepository {
     required String planId,
     required bool confirmed,
   }) async {
-    final json = await _postJson('/api/llm/tasks/$planId/execute', {
-      'confirmed': confirmed,
-    }) as Map<String, dynamic>;
+    final json = await _postJson(
+      '/api/llm/tasks/$planId/execute',
+      {
+        'confirmed': confirmed,
+      },
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     final steps = (json['steps'] as List? ?? const [])
         .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
         .toList();
@@ -610,7 +633,9 @@ class CloudRepository extends TcpCarRepository {
           .map((item) => item.toString())
           .toList(),
       steps: (json['steps'] as List? ?? const [])
-          .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
+          .map(
+            (item) => _llmStepFromJson((item as Map).cast<String, dynamic>()),
+          )
           .toList(),
     );
   }
@@ -1223,25 +1248,26 @@ class MockRepository implements Repository {
   @override
   Future<LlmTaskPlan> planLlmTask(String prompt) async {
     final robotCode = prompt.contains('robot_002') ? 'robot_002' : 'robot_001';
-    final step = prompt.contains('急停') || prompt.toLowerCase().contains('stop')
-        ? LlmPlanStep(
-            stepId: 'step_1',
-            tool: 'fleet.safety_stop',
-            title: '安全停止小车',
-            safetyLevel: 'safe_command',
-            requiresConfirmation: true,
-            status: 'planned',
-            arguments: {'robot_codes': [robotCode]},
-          )
-        : const LlmPlanStep(
-            stepId: 'step_1',
-            tool: 'fleet.summary',
-            title: '查询车队总览',
-            safetyLevel: 'read_only',
-            requiresConfirmation: false,
-            status: 'planned',
-            arguments: {},
-          );
+    final step =
+        prompt.contains('急停') || prompt.toLowerCase().contains('stop')
+            ? LlmPlanStep(
+                stepId: 'step_1',
+                tool: 'fleet.safety_stop',
+                title: '安全停止小车',
+                safetyLevel: 'safe_command',
+                requiresConfirmation: true,
+                status: 'planned',
+                arguments: {'robot_codes': [robotCode]},
+              )
+            : const LlmPlanStep(
+                stepId: 'step_1',
+                tool: 'fleet.summary',
+                title: '查询车队总览',
+                safetyLevel: 'read_only',
+                requiresConfirmation: false,
+                status: 'planned',
+                arguments: {},
+              );
     return _delay(
       LlmTaskPlan(
         planId: 'mock_${DateTime.now().millisecondsSinceEpoch}',

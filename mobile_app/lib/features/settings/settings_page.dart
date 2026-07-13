@@ -15,12 +15,14 @@ class _SettingsPageState extends State<SettingsPage> {
   final _tcpHost = TextEditingController();
   final _tcpPort = TextEditingController();
   final _apiBaseUrl = TextEditingController();
+  final _llmApiBaseUrl = TextEditingController();
 
   @override
   void dispose() {
     _tcpHost.dispose();
     _tcpPort.dispose();
     _apiBaseUrl.dispose();
+    _llmApiBaseUrl.dispose();
     super.dispose();
   }
 
@@ -33,6 +35,9 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_tcpHost.text.isEmpty) _tcpHost.text = settings.tcpHost;
     if (_tcpPort.text.isEmpty) _tcpPort.text = settings.tcpPort.toString();
     if (_apiBaseUrl.text.isEmpty) _apiBaseUrl.text = settings.apiBaseUrl;
+    if (_llmApiBaseUrl.text.isEmpty) {
+      _llmApiBaseUrl.text = settings.llmApiBaseUrl;
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('系统设置')),
@@ -83,6 +88,38 @@ class _SettingsPageState extends State<SettingsPage> {
                     },
                     icon: const Icon(Icons.cloud_sync_outlined),
                     label: const Text('保存接口地址'),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _llmApiBaseUrl,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'LLM 网关地址',
+                      hintText: 'http://192.168.137.51:8000',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    onPressed: () async {
+                      await settings.updateLlmApiBaseUrl(_llmApiBaseUrl.text);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content:
+                              Text('已保存 LLM 网关地址：${settings.llmApiBaseUrl}'),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.smart_toy_outlined),
+                    label: const Text('保存 LLM 网关地址'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '助手页面只会使用 LLM 网关地址；地图、巡检、车队等接口仍使用上面的后端接口地址。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -161,8 +198,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!context.mounted) return;
                       _tcpHost.text = settings.tcpHost;
                       _tcpPort.text = settings.tcpPort.toString();
+                      _apiBaseUrl.text = settings.apiBaseUrl;
+                      _llmApiBaseUrl.text = settings.llmApiBaseUrl;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已恢复默认 TCP 配置')),
+                        const SnackBar(content: Text('已恢复默认配置')),
                       );
                     },
                     icon: const Icon(Icons.cleaning_services_outlined),

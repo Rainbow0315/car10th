@@ -5,17 +5,21 @@ class AppSettings extends ChangeNotifier {
   static const _kTcpHostKey = 'settings.tcpHost';
   static const _kTcpPortKey = 'settings.tcpPort';
   static const _kApiBaseUrlKey = 'settings.apiBaseUrl';
+  static const _kLlmApiBaseUrlKey = 'settings.llmApiBaseUrl';
   static const _defaultTcpHost = '192.168.137.239';
   static const _defaultTcpPort = 6001;
-  static const _defaultApiBaseUrl = 'http://192.168.137.51:8000';
+  static const _defaultApiBaseUrl = 'http://192.168.137.239:8000';
+  static const _defaultLlmApiBaseUrl = 'http://192.168.137.51:8000';
 
   String _tcpHost = _defaultTcpHost;
   int _tcpPort = _defaultTcpPort;
   String _apiBaseUrl = _defaultApiBaseUrl;
+  String _llmApiBaseUrl = _defaultLlmApiBaseUrl;
 
   String get tcpHost => _tcpHost;
   int get tcpPort => _tcpPort;
   String get apiBaseUrl => _apiBaseUrl;
+  String get llmApiBaseUrl => _llmApiBaseUrl;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -27,7 +31,17 @@ class AppSettings extends ChangeNotifier {
     if (savedTcpPort == 6000) {
       await prefs.setInt(_kTcpPortKey, _defaultTcpPort);
     }
-    _apiBaseUrl = prefs.getString(_kApiBaseUrlKey) ?? _apiBaseUrl;
+    final savedApiBaseUrl = prefs.getString(_kApiBaseUrlKey);
+    final savedLlmApiBaseUrl = prefs.getString(_kLlmApiBaseUrlKey);
+    _apiBaseUrl = savedApiBaseUrl ?? _apiBaseUrl;
+    _llmApiBaseUrl = savedLlmApiBaseUrl ?? _llmApiBaseUrl;
+    if (savedLlmApiBaseUrl == null &&
+        savedApiBaseUrl == _defaultLlmApiBaseUrl) {
+      _apiBaseUrl = _defaultApiBaseUrl;
+      _llmApiBaseUrl = savedApiBaseUrl!;
+      await prefs.setString(_kApiBaseUrlKey, _apiBaseUrl);
+      await prefs.setString(_kLlmApiBaseUrlKey, _llmApiBaseUrl);
+    }
     notifyListeners();
   }
 
@@ -57,14 +71,26 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateLlmApiBaseUrl(String value) async {
+    final clean = value.trim().replaceAll(RegExp(r'/+$'), '');
+    if (clean.isEmpty || Uri.tryParse(clean)?.hasScheme != true) return;
+
+    _llmApiBaseUrl = clean;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kLlmApiBaseUrlKey, clean);
+    notifyListeners();
+  }
+
   Future<void> clearLocalCache() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kTcpHostKey);
     await prefs.remove(_kTcpPortKey);
     await prefs.remove(_kApiBaseUrlKey);
+    await prefs.remove(_kLlmApiBaseUrlKey);
     _tcpHost = _defaultTcpHost;
     _tcpPort = _defaultTcpPort;
     _apiBaseUrl = _defaultApiBaseUrl;
+    _llmApiBaseUrl = _defaultLlmApiBaseUrl;
     notifyListeners();
   }
 }
