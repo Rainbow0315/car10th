@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
 import 'alarm_detail_page.dart';
+import 'alarm_labels.dart';
 
 class AlarmListPage extends StatefulWidget {
   const AlarmListPage({super.key});
@@ -31,39 +32,6 @@ class _AlarmListPageState extends State<AlarmListPage> {
         .listAlarms(type: _type, risk: _risk, status: _status);
   }
 
-  String _typeLabel(AlarmType t) {
-    switch (t) {
-      case AlarmType.water:
-        return '积水';
-      case AlarmType.crack:
-        return '裂缝';
-      case AlarmType.debris:
-        return '异物';
-      case AlarmType.smoking:
-        return '抽烟';
-    }
-  }
-
-  String _riskLabel(RiskLevel r) {
-    switch (r) {
-      case RiskLevel.low:
-        return '低';
-      case RiskLevel.medium:
-        return '中';
-      case RiskLevel.high:
-        return '高';
-    }
-  }
-
-  String _statusLabel(AlarmStatus s) {
-    switch (s) {
-      case AlarmStatus.unhandled:
-        return '未处理';
-      case AlarmStatus.handled:
-        return '已处理';
-    }
-  }
-
   Color _riskColor(RiskLevel r, ColorScheme cs) {
     switch (r) {
       case RiskLevel.low:
@@ -77,7 +45,8 @@ class _AlarmListPageState extends State<AlarmListPage> {
 
   void _open(AlarmEvent alarm) {
     Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => AlarmDetailPage(alarmId: alarm.id)));
+      MaterialPageRoute(builder: (_) => AlarmDetailPage(alarmId: alarm.id)),
+    );
   }
 
   Future<void> _refresh() async {
@@ -116,7 +85,7 @@ class _AlarmListPageState extends State<AlarmListPage> {
           IconButton(
             onPressed: _pickFilters,
             icon: const Icon(Icons.filter_alt_outlined),
-            tooltip: '筛选',
+            tooltip: '筛选告警',
           ),
         ],
       ),
@@ -135,9 +104,11 @@ class _AlarmListPageState extends State<AlarmListPage> {
                 children: [
                   Text('暂无告警', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 6),
-                  Text('可尝试清空筛选条件',
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: cs.onSurfaceVariant)),
+                  Text(
+                    '当前没有符合条件的告警，可清空筛选条件后再查看。',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
                 ],
               );
             }
@@ -149,24 +120,74 @@ class _AlarmListPageState extends State<AlarmListPage> {
               itemBuilder: (context, i) {
                 final a = list[i];
                 final riskColor = _riskColor(a.risk, cs);
-                return ListTile(
-                  tileColor: cs.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  leading: CircleAvatar(
-                    backgroundColor: riskColor.withAlpha(46),
-                    foregroundColor: riskColor,
-                    child: Text(_riskLabel(a.risk)),
+                return Material(
+                  color: cs.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _open(a),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: riskColor.withAlpha(46),
+                            foregroundColor: riskColor,
+                            child: Text(
+                              alarmRiskLabel(a.risk),
+                              maxLines: 1,
+                              softWrap: false,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${alarmTypeLabel(a.type)} · ${alarmStatusLabel(a.status)}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        softWrap: false,
+                                        style: theme.textTheme.titleSmall,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${(a.confidence * 100).toStringAsFixed(1)}%',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      style: theme.textTheme.labelLarge
+                                          ?.copyWith(color: riskColor),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${compactDateTime(a.timestamp)} · ${a.robotCode ?? '未知小车'} · ${a.cameraCode ?? '未知相机'}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  softWrap: false,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                    ),
                   ),
-                  title:
-                      Text('${_typeLabel(a.type)} · ${_statusLabel(a.status)}'),
-                  subtitle: Text(
-                    '${a.timestamp.toLocal()}  置信度 ${(a.confidence * 100).toStringAsFixed(1)}%',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _open(a),
                 );
               },
             );
@@ -220,16 +241,16 @@ class _FilterSheetState extends State<_FilterSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('筛选', style: theme.textTheme.titleMedium),
+          Text('筛选告警', style: theme.textTheme.titleMedium),
           const SizedBox(height: 10),
           DropdownButtonFormField<AlarmType?>(
             initialValue: _type,
             decoration: const InputDecoration(
-                labelText: '异常类型', border: OutlineInputBorder()),
+                labelText: '告警类型', border: OutlineInputBorder()),
             items: [
-              const DropdownMenuItem(value: null, child: Text('全部')),
+              const DropdownMenuItem(value: null, child: Text('全部类型')),
               ...AlarmType.values.map((e) =>
-                  DropdownMenuItem(value: e, child: Text(_typeLabel(e)))),
+                  DropdownMenuItem(value: e, child: Text(alarmTypeLabel(e)))),
             ],
             onChanged: (v) => setState(() => _type = v),
           ),
@@ -239,9 +260,9 @@ class _FilterSheetState extends State<_FilterSheet> {
             decoration: const InputDecoration(
                 labelText: '风险等级', border: OutlineInputBorder()),
             items: [
-              const DropdownMenuItem(value: null, child: Text('全部')),
+              const DropdownMenuItem(value: null, child: Text('全部等级')),
               ...RiskLevel.values.map((e) =>
-                  DropdownMenuItem(value: e, child: Text(_riskLabel(e)))),
+                  DropdownMenuItem(value: e, child: Text(alarmRiskLabel(e)))),
             ],
             onChanged: (v) => setState(() => _risk = v),
           ),
@@ -251,9 +272,9 @@ class _FilterSheetState extends State<_FilterSheet> {
             decoration: const InputDecoration(
                 labelText: '处理状态', border: OutlineInputBorder()),
             items: [
-              const DropdownMenuItem(value: null, child: Text('全部')),
+              const DropdownMenuItem(value: null, child: Text('全部状态')),
               ...AlarmStatus.values.map((e) =>
-                  DropdownMenuItem(value: e, child: Text(_statusLabel(e)))),
+                  DropdownMenuItem(value: e, child: Text(alarmStatusLabel(e)))),
             ],
             onChanged: (v) => setState(() => _status = v),
           ),
@@ -284,38 +305,5 @@ class _FilterSheetState extends State<_FilterSheet> {
         ],
       ),
     );
-  }
-
-  String _typeLabel(AlarmType t) {
-    switch (t) {
-      case AlarmType.water:
-        return '积水';
-      case AlarmType.crack:
-        return '裂缝';
-      case AlarmType.debris:
-        return '异物';
-      case AlarmType.smoking:
-        return '抽烟';
-    }
-  }
-
-  String _riskLabel(RiskLevel r) {
-    switch (r) {
-      case RiskLevel.low:
-        return '低';
-      case RiskLevel.medium:
-        return '中';
-      case RiskLevel.high:
-        return '高';
-    }
-  }
-
-  String _statusLabel(AlarmStatus s) {
-    switch (s) {
-      case AlarmStatus.unhandled:
-        return '未处理';
-      case AlarmStatus.handled:
-        return '已处理';
-    }
   }
 }

@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     inspection_monitor_output_dir: str = str(BASE_DIR / "runtime" / "inspection" / "monitor_frames")
     inspection_monitor_local_frame_dir: str = str(BASE_DIR / "runtime" / "inspection" / "cloud_frames")
     inspection_monitor_download_frames: bool = False
+    inspection_alarm_min_confidence: float = 0.6
 
     @property
     def database_url(self) -> str:

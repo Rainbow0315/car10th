@@ -14,11 +14,13 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _tcpHost = TextEditingController();
   final _tcpPort = TextEditingController();
+  final _apiBaseUrl = TextEditingController();
 
   @override
   void dispose() {
     _tcpHost.dispose();
     _tcpPort.dispose();
+    _apiBaseUrl.dispose();
     super.dispose();
   }
 
@@ -30,6 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (_tcpHost.text.isEmpty) _tcpHost.text = settings.tcpHost;
     if (_tcpPort.text.isEmpty) _tcpPort.text = settings.tcpPort.toString();
+    if (_apiBaseUrl.text.isEmpty) _apiBaseUrl.text = settings.apiBaseUrl;
 
     return Scaffold(
       appBar: AppBar(title: const Text('系统设置')),
@@ -46,6 +49,41 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 8),
                   _KvRow(k: '账号', v: session.username ?? '-'),
                   _KvRow(k: '角色', v: _roleLabel(session.role)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('后端接口', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _apiBaseUrl,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: '接口地址',
+                      hintText: 'http://192.168.247.8:8000',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    onPressed: () async {
+                      await settings.updateApiBaseUrl(_apiBaseUrl.text);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text('已保存接口地址：${settings.apiBaseUrl}')),
+                      );
+                    },
+                    icon: const Icon(Icons.cloud_sync_outlined),
+                    label: const Text('保存接口地址'),
+                  ),
                 ],
               ),
             ),
@@ -188,10 +226,17 @@ class _KvRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(k, style: theme.textTheme.bodyMedium),
-          Text(
-            v,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              v,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

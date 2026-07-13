@@ -123,6 +123,9 @@ class InspectionMonitorService:
             alarms = inspection_alarm_service.create_alarms_from_result(db, result, publish_mqtt=True)
         self._delete_remote_frame(result)
 
+        if not alarms:
+            return {"result": result, "alarms": []}
+
         self._total_alarm_frames += 1
         self._total_alarms += len(alarms)
         self._last_alarm_at = datetime.now()

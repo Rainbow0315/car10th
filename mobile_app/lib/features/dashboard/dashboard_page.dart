@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../app/session.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
+import '../alarm/alarm_labels.dart';
 import '../chat/chat_page.dart';
 import '../control/control_page.dart';
 import '../history/history_page.dart';
@@ -19,6 +20,8 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   late Future<DashboardStats> _statsFuture;
   late Future<RobotStatus> _robotFuture;
+  late Future<InspectionMonitorStatus> _monitorFuture;
+  bool _monitorBusy = false;
 
   @override
   void initState() {
@@ -26,19 +29,11 @@ class _DashboardPageState extends State<DashboardPage> {
     final repo = context.read<Repository>();
     _statsFuture = repo.getDashboardStats();
     _robotFuture = repo.getRobotStatus(robotId: 'robot_01');
+    _monitorFuture = repo.getInspectionMonitorStatus();
   }
 
   String _alarmTypeLabel(AlarmType t) {
-    switch (t) {
-      case AlarmType.water:
-        return '积水';
-      case AlarmType.crack:
-        return '裂缝';
-      case AlarmType.debris:
-        return '异物';
-      case AlarmType.smoking:
-        return '抽烟';
-    }
+    return alarmTypeLabel(t);
   }
 
   String _modeLabel(RobotMode m) {
@@ -56,6 +51,38 @@ class _DashboardPageState extends State<DashboardPage> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
+  Future<void> _reload() async {
+    final repo = context.read<Repository>();
+    setState(() {
+      _statsFuture = repo.getDashboardStats();
+      _robotFuture = repo.getRobotStatus(robotId: 'robot_01');
+      _monitorFuture = repo.getInspectionMonitorStatus();
+    });
+    await Future.wait([_statsFuture, _robotFuture, _monitorFuture]);
+  }
+
+  Future<void> _toggleMonitor(bool enable) async {
+    setState(() => _monitorBusy = true);
+    try {
+      final repo = context.read<Repository>();
+      final status = enable
+          ? await repo.startInspectionMonitor()
+          : await repo.stopInspectionMonitor();
+      if (!mounted) return;
+      setState(() {
+        _monitorFuture = Future.value(status);
+        _statsFuture = repo.getDashboardStats();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('检测监控指令失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _monitorBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AppSession>();
@@ -65,18 +92,25 @@ class _DashboardPageState extends State<DashboardPage> {
         title: const Text('总控首页'),
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          final repo = context.read<Repository>();
-          setState(() {
-            _statsFuture = repo.getDashboardStats();
-            _robotFuture = repo.getRobotStatus(robotId: 'robot_01');
-          });
-          await Future.wait([_statsFuture, _robotFuture]);
-        },
+        onRefresh: _reload,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             _buildQuickActions(session),
+            const SizedBox(height: 12),
+            FutureBuilder(
+              future: _monitorFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const _LoadingCard(title: '检测监控');
+                }
+                return _MonitorCard(
+                  status: snapshot.data!,
+                  busy: _monitorBusy,
+                  onChanged: _toggleMonitor,
+                );
+              },
+            ),
             const SizedBox(height: 12),
             FutureBuilder(
               future: _statsFuture,
@@ -151,6 +185,72 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               )
               .toList(),
+        ),
+      ),
+    );
+  }
+}
+
+class _MonitorCard extends StatelessWidget {
+  final InspectionMonitorStatus status;
+  final bool busy;
+  final ValueChanged<bool> onChanged;
+
+  const _MonitorCard({
+    required this.status,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final stateColor = status.running ? cs.primary : cs.onSurfaceVariant;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.visibility_outlined, color: stateColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('检测监控', style: theme.textTheme.titleMedium),
+                ),
+                Switch(
+                  value: status.running,
+                  onChanged: busy ? null : onChanged,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                    child: _Metric(label: '图像话题', value: status.topicName)),
+                Expanded(
+                    child:
+                        _Metric(label: '已检测', value: '${status.totalFrames}')),
+                Expanded(
+                    child:
+                        _Metric(label: '告警数', value: '${status.totalAlarms}')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              status.lastError?.isNotEmpty == true
+                  ? '最近错误：${status.lastError}'
+                  : '间隔 ${status.intervalSec.toStringAsFixed(1)} 秒，风险帧 ${status.totalAlarmFrames}',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: cs.onSurfaceVariant),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
@@ -264,10 +364,16 @@ class _Metric extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(value,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.headlineSmall
                 ?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
         Text(label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],

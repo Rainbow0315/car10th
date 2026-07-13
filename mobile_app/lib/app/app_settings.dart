@@ -4,17 +4,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppSettings extends ChangeNotifier {
   static const _kTcpHostKey = 'settings.tcpHost';
   static const _kTcpPortKey = 'settings.tcpPort';
+  static const _kApiBaseUrlKey = 'settings.apiBaseUrl';
 
   String _tcpHost = '192.168.247.227';
   int _tcpPort = 6000;
+  String _apiBaseUrl = 'http://192.168.247.8:8000';
 
   String get tcpHost => _tcpHost;
   int get tcpPort => _tcpPort;
+  String get apiBaseUrl => _apiBaseUrl;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _tcpHost = prefs.getString(_kTcpHostKey) ?? _tcpHost;
     _tcpPort = prefs.getInt(_kTcpPortKey) ?? _tcpPort;
+    _apiBaseUrl = prefs.getString(_kApiBaseUrlKey) ?? _apiBaseUrl;
     notifyListeners();
   }
 
@@ -34,12 +38,24 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateApiBaseUrl(String value) async {
+    final clean = value.trim().replaceAll(RegExp(r'/+$'), '');
+    if (clean.isEmpty || Uri.tryParse(clean)?.hasScheme != true) return;
+
+    _apiBaseUrl = clean;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kApiBaseUrlKey, clean);
+    notifyListeners();
+  }
+
   Future<void> clearLocalCache() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kTcpHostKey);
     await prefs.remove(_kTcpPortKey);
+    await prefs.remove(_kApiBaseUrlKey);
     _tcpHost = '192.168.247.227';
     _tcpPort = 6000;
+    _apiBaseUrl = 'http://192.168.247.8:8000';
     notifyListeners();
   }
 }
