@@ -107,8 +107,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content:
-                              Text('已保存 LLM 网关地址：${settings.llmApiBaseUrl}'),
+                          content: Text(
+                            '已保存 LLM 网关地址：${settings.llmApiBaseUrl}',
+                          ),
                         ),
                       );
                     },

@@ -448,7 +448,9 @@ class CloudRepository extends TcpCarRepository {
       baseUrl: settings.llmApiBaseUrl,
     ) as Map<String, dynamic>;
     final steps = (json['steps'] as List? ?? const [])
-        .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
+        .map(
+          (item) => _llmStepFromJson((item as Map).cast<String, dynamic>()),
+        )
         .toList();
     return LlmTaskPlan(
       planId: json['plan_id']?.toString() ?? planId,
