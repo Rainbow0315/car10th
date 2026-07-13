@@ -279,8 +279,7 @@ class _RuntimeStatusCard extends StatelessWidget {
         : configured
             ? '真实 LLM 已接入'
             : '当前使用规则兜底';
-    final detail =
-        error ??
+    final detail = error ??
         (status == null
             ? '正在检查后端 LLM 配置…'
             : '${status!.message}${status!.apiBaseHost == null ? '' : ' 网关：${status!.apiBaseHost}'}');
