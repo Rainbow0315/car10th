@@ -64,7 +64,7 @@ sudo visudo -f /etc/sudoers.d/car10th-robot-agent
 
 - `<小车IP>`：小车 Ubuntu 的局域网 IP
 - `<小车用户名>`：小车 Ubuntu 用户名
-- `<电脑IP>`：运行 MQTT broker 且小车能访问到的 Windows IP，例如本次真机测试中小车 `192.168.247.227` 同网段的 `192.168.247.64`
+- `<电脑IP>`：运行 MQTT broker 且小车能访问到的 Windows IP。当前真机测试网段中，小车为 `192.168.137.239`，电脑 MQTT host 为 `192.168.137.51`。
 
 ```powershell
 cd F:\SHIXUN\car10th

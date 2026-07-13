@@ -12,10 +12,17 @@ backend/.run/
 backend/runtime/
 backend/capture_img/*
 !backend/capture_img/.gitkeep
+backend/apps/ai_service/weights/*
+!backend/apps/ai_service/weights/README.md
 backend/.venv/
 *.db
 flutter_app/build/
 *.pyc
 *.engine
 *.pt
+*.pth
+*.onnx
+*.tflite
+*.torchscript
+*.ncnn
 *.mp4

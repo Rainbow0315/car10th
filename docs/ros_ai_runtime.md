@@ -4,7 +4,7 @@
 
 ## 1. 当前已验证环境
 
-- 小车 IP：`192.168.247.227`
+- 小车 IP：`192.168.137.239`
 - SSH 用户：`jetson`
 - ROS 容器名：`ros_x3_fixed`
 - ROS_DOMAIN_ID：`30`
@@ -89,7 +89,7 @@ docker run -dit \
 进入小车后执行：
 
 ```bash
-ssh jetson@192.168.247.227
+ssh jetson@192.168.137.239
 docker exec -it ros_x3_fixed bash
 ```
 

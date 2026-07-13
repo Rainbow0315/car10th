@@ -47,14 +47,16 @@ car10th-deployer
 
 ```text
 小车 SSH 用户: jetson
-小车 IP: 192.168.247.227
+小车 IP: 192.168.137.239
 小车项目根目录: /home/jetson/Project/car10th
 小车 robot code: robot_001
 MQTT broker 端口: 1883
 MQTT robot 用户名: parking_robot
 MQTT robot 密码: parking_robot_dev
-曾验证可达的 MQTT host: 192.168.247.64
+当前电脑 MQTT host: 192.168.137.51
 ```
+
+历史网络记录：2026-07-12 曾使用小车 IP `192.168.247.227`、电脑 MQTT host `192.168.247.64`；2026-07-13 切换到当前 `192.168.137.*` 网段。
 
 确认小车信息的命令：
 
@@ -67,7 +69,7 @@ hostname -I
 确认部署机能连小车：
 
 ```powershell
-ssh jetson@192.168.247.227
+ssh jetson@192.168.137.239
 ```
 
 确认小车能连 MQTT / 后端：
@@ -177,7 +179,7 @@ type $env:USERPROFILE\.ssh\car10th_robot_agent_ed25519.pub
 然后在部署机测试：
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\car10th_robot_agent_ed25519 jetson@192.168.247.227 "hostname && whoami"
+ssh -i $env:USERPROFILE\.ssh\car10th_robot_agent_ed25519 jetson@192.168.137.239 "hostname && whoami"
 ```
 
 如果使用这种方式，可以在 GitHub 里不配置 `ROBOT_SSH_PRIVATE_KEY`，但需要确保 runner 用户默认 SSH 配置能找到这把 key，或者后续扩展 workflow 显式传入 key 路径。
@@ -203,11 +205,11 @@ GitHub 仓库 -> Settings -> Secrets and variables -> Actions
 配置 Variables：
 
 ```text
-ROBOT_HOST=192.168.247.227
+ROBOT_HOST=192.168.137.239
 ROBOT_USER=jetson
 ROBOT_REMOTE_DIR=/home/jetson/Project/car10th
 SSH_PORT=22
-MQTT_HOST=<部署时小车可访问的 MQTT broker IP>
+MQTT_HOST=192.168.137.51
 MQTT_PORT=1883
 ROBOT_CODE=robot_001
 MQTT_ROBOT_USERNAME=parking_robot
@@ -264,9 +266,9 @@ MQTT broker: <MQTT_HOST>:1883
 在部署机或任意能 SSH 小车的电脑上检查：
 
 ```powershell
-ssh jetson@192.168.247.227 "cat /home/jetson/Project/car10th/current/DEPLOYED_COMMIT"
-ssh jetson@192.168.247.227 "systemctl is-active car10th-robot-agent"
-ssh jetson@192.168.247.227 "systemctl status car10th-robot-agent --no-pager"
+ssh jetson@192.168.137.239 "cat /home/jetson/Project/car10th/current/DEPLOYED_COMMIT"
+ssh jetson@192.168.137.239 "systemctl is-active car10th-robot-agent"
+ssh jetson@192.168.137.239 "systemctl status car10th-robot-agent --no-pager"
 ```
 
 在小车上看实时日志：

@@ -292,7 +292,7 @@ curl.exe -s http://127.0.0.1:8000/api/fleet/robots
 {
   "robot_code": "robot_001",
   "agent_hostname": "jetson-desktop",
-  "agent_ip": "192.168.247.227",
+  "agent_ip": "192.168.137.239",
   "agent_version": "13b9ab6"
 }
 ```
