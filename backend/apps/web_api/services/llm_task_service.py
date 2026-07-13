@@ -255,6 +255,7 @@ class LlmTaskService:
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ],
             "temperature": 0.1,
+            "response_format": {"type": "json_object"},
         }
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(
@@ -262,6 +263,7 @@ class LlmTaskService:
                 headers={
                     "Authorization": f"Bearer {settings.llm_api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": "car10th-llm-task-planner/1.0",
                 },
                 json=body,
             )

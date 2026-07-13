@@ -77,7 +77,7 @@ def install_lightweight_stubs() -> None:
     settings_mod.settings = types.SimpleNamespace(
         llm_api_key="secret-key-for-test",
         llm_api_base="",
-        llm_model="qwen-plus",
+        llm_model="gpt-5.4-mini",
         fleet_robot_offline_sec=10,
         fleet_command_ack_timeout_sec=5,
     )
@@ -103,7 +103,7 @@ async def run_tests() -> None:
     install_lightweight_stubs()
 
     from apps.web_api.services.llm_task_service import LlmTaskService
-    from common.schemas.llm import LlmTaskPlanRequest
+    from common.schemas.llm import LlmTaskExecuteRequest, LlmTaskPlanRequest
 
     service = LlmTaskService()
     cases = [
@@ -155,6 +155,29 @@ async def run_tests() -> None:
 
     route_status = llm_router.get_llm_runtime_status()
     assert route_status.llm_configured is True
+    route_tools = llm_router.list_llm_tools(["robot_001"])
+    assert any(tool.name == "fleet.safety_stop" for tool in route_tools.tools)
+
+    route_plan = await llm_router.plan_llm_task(
+        LlmTaskPlanRequest(message="stop robot_001", allow_llm=False),
+    )
+    assert route_plan.plan_id
+    assert route_plan.steps[0].tool == "fleet.safety_stop"
+    try:
+        llm_router.execute_llm_task(
+            route_plan.plan_id,
+            LlmTaskExecuteRequest(confirmed=False),
+        )
+    except sys.modules["fastapi"].HTTPException as exc:
+        assert exc.status_code == 409
+    else:
+        raise AssertionError("execution without confirmation must be rejected")
+    route_result = llm_router.execute_llm_task(
+        route_plan.plan_id,
+        LlmTaskExecuteRequest(confirmed=True),
+    )
+    assert route_result.steps[0].status == "executed"
+    assert route_result.steps[0].result["commands"][0]["status"] == "published"
 
     redacted = service._safe_error(RuntimeError("bad secret-key-for-test"))
     assert "secret-key-for-test" not in redacted
