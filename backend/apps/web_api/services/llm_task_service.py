@@ -31,8 +31,8 @@ class LlmTaskService:
         self._plans: dict[str, LlmTaskPlanResponse] = {}
         self._tools = self._build_tools()
 
-    def list_tools(self) -> LlmToolListResponse:
-        return LlmToolListResponse(tools=list(self._tools.values()))
+    def list_tools(self, robot_codes: Optional[list[str]] = None) -> LlmToolListResponse:
+        return LlmToolListResponse(tools=self._tools_with_availability(robot_codes or ["robot_001"]))
 
     async def plan(self, request: LlmTaskPlanRequest) -> LlmTaskPlanResponse:
         robot_context = self._robot_context(request.robot_codes)
@@ -108,6 +108,13 @@ class LlmTaskService:
         return plan.model_copy(update={"steps": updated_steps})
 
     def _execute_step(self, step: LlmTaskPlanStep) -> Dict[str, Any]:
+        spec = self._tools.get(step.tool)
+        if spec is None:
+            raise ValueError(f"Unsupported LLM tool: {step.tool}")
+        missing = self._missing_required_arguments(spec, step.arguments)
+        if missing:
+            raise ValueError(f"LLM tool {step.tool} missing required arguments: {', '.join(missing)}")
+
         if step.tool == "fleet.summary":
             return fleet_service.get_summary()
         if step.tool == "fleet.readiness":
@@ -206,7 +213,9 @@ class LlmTaskService:
             url = f"{base}/v1/chat/completions"
         prompt = {
             "user_message": request.message,
-            "available_tools": [tool.model_dump(mode="json") for tool in self._tools.values()],
+            "available_tools": [
+                tool.model_dump(mode="json") for tool in self._tools_with_availability(request.robot_codes)
+            ],
             "robot_context": [item.model_dump(mode="json") for item in robot_context],
             "output_schema": {
                 "steps": [
@@ -260,6 +269,8 @@ class LlmTaskService:
             arguments = item.get("arguments")
             if not isinstance(arguments, dict):
                 arguments = {}
+            if self._missing_required_arguments(spec, arguments):
+                continue
             steps.append(
                 LlmTaskPlanStep(
                     step_id=f"step_{index}",
@@ -346,6 +357,41 @@ class LlmTaskService:
         if not readiness.all_ready:
             raise ValueError("robot is not ready for LLM planned command")
 
+    def _tools_with_availability(self, robot_codes: list[str]) -> list[LlmToolSpec]:
+        readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes or ["robot_001"]))
+        mqtt_connected = bool(mqtt_manager.is_connected)
+        tools = []
+        for tool in self._tools.values():
+            available = True
+            unavailable_reason = None
+            if tool.safety_level != "read_only" and not mqtt_connected:
+                available = False
+                unavailable_reason = "MQTT broker is not connected"
+            elif tool.readiness_required and not readiness.all_ready:
+                available = False
+                unavailable_reason = "not all target robots are ready"
+            tools.append(
+                tool.model_copy(
+                    update={
+                        "available": available,
+                        "unavailable_reason": unavailable_reason,
+                    }
+                )
+            )
+        return tools
+
+    def _missing_required_arguments(self, spec: LlmToolSpec, arguments: Dict[str, Any]) -> list[str]:
+        missing = []
+        for name in spec.required_arguments:
+            value = arguments.get(name)
+            if name == "robot_codes":
+                if not self._string_list(value):
+                    missing.append(name)
+                continue
+            if value is None or (isinstance(value, str) and not value.strip()):
+                missing.append(name)
+        return missing
+
     def _safety_notes(self, steps: list[LlmTaskPlanStep]) -> list[str]:
         notes = [
             "LLM 只生成任务计划，后端按工具白名单和机器人状态执行。",
@@ -370,6 +416,7 @@ class LlmTaskService:
                 name="fleet.summary",
                 title="查询车队总览",
                 description="读取车队在线数量、命令数量和编队状态，不会控制小车。",
+                backend_route="GET /api/fleet/summary",
                 safety_level="read_only",
                 requires_confirmation=False,
             ),
@@ -377,6 +424,7 @@ class LlmTaskService:
                 name="fleet.readiness",
                 title="检查小车是否可执行任务",
                 description="检查指定 robot_code 是否在线且可接收任务。",
+                backend_route="POST /api/fleet/readiness",
                 required_arguments=["robot_codes"],
                 safety_level="read_only",
                 requires_confirmation=False,
@@ -385,6 +433,8 @@ class LlmTaskService:
                 name="fleet.safety_stop",
                 title="安全停止小车",
                 description="向指定小车下发 emergency_stop。",
+                backend_route="POST /api/fleet/safety/stop",
+                command_name="emergency_stop",
                 required_arguments=["robot_codes"],
                 safety_level="safe_command",
                 requires_confirmation=True,
@@ -393,16 +443,22 @@ class LlmTaskService:
                 name="fleet.plate_verify",
                 title="派车核验车牌目标",
                 description="向指定小车下发 plate_verify_scan，短时低速原地扫描。",
+                backend_route="POST /api/fleet/vision/plate/verify",
+                command_name="plate_verify_scan",
                 required_arguments=["verifier_robot_code", "plate_number"],
                 safety_level="motion_command",
+                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(
                 name="fleet.escort_return",
                 title="派车护送返航",
                 description="向护送车下发 escort_return，低速短时跟随/护送动作。",
+                backend_route="POST /api/fleet/escort/return",
+                command_name="escort_return",
                 required_arguments=["escort_robot_code", "target_robot_code"],
                 safety_level="motion_command",
+                readiness_required=True,
                 requires_confirmation=True,
             ),
         ]

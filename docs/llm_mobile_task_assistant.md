@@ -54,6 +54,36 @@ LLM_API_BASE=https://你的服务地址/v1/chat/completions
 GET /api/llm/tools
 ```
 
+可带小车编号查询当前可用性：
+
+```http
+GET /api/llm/tools?robot_codes=robot_001
+```
+
+返回中的关键字段：
+
+```json
+{
+  "name": "fleet.plate_verify",
+  "backend_route": "POST /api/fleet/vision/plate/verify",
+  "command_name": "plate_verify_scan",
+  "required_arguments": ["verifier_robot_code", "plate_number"],
+  "safety_level": "motion_command",
+  "readiness_required": true,
+  "requires_confirmation": true,
+  "available": false,
+  "unavailable_reason": "not all target robots are ready"
+}
+```
+
+这就是 LLM “知道有哪些接口”的来源：后端把这份工具清单放进 prompt，LLM 只能返回其中的 `name` 和参数。后端收到结果后还会再校验：
+
+- 工具名必须存在于白名单。
+- 必填参数必须齐全。
+- 运动类工具必须用户确认。
+- 需要 readiness 的工具在执行前还会再次检查小车状态。
+- MQTT 发布失败会作为真实执行结果返回，不由 LLM 猜测成功。
+
 自然语言生成计划：
 
 ```http

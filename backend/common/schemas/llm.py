@@ -19,9 +19,14 @@ class LlmToolSpec(BaseModel):
     name: LlmToolName
     title: str
     description: str
+    backend_route: str
+    command_name: Optional[str] = None
     required_arguments: list[str] = Field(default_factory=list)
     safety_level: Literal["read_only", "safe_command", "motion_command"]
+    readiness_required: bool = False
     requires_confirmation: bool = True
+    available: bool = True
+    unavailable_reason: Optional[str] = None
 
 
 class LlmRobotContext(BaseModel):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Optional
+
+from fastapi import APIRouter, Query
 
 from apps.web_api.services.llm_task_service import llm_task_service
 from common.schemas.llm import (
@@ -15,8 +17,8 @@ router = APIRouter()
 
 
 @router.get("/tools", response_model=LlmToolListResponse, summary="List LLM-safe robot tools")
-def list_llm_tools():
-    return llm_task_service.list_tools()
+def list_llm_tools(robot_codes: Optional[list[str]] = Query(default=None)):
+    return llm_task_service.list_tools(robot_codes)
 
 
 @router.post("/tasks/plan", response_model=LlmTaskPlanResponse, summary="Plan a robot task from natural language")
