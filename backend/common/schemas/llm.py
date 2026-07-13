@@ -8,9 +8,16 @@ from pydantic import BaseModel, Field
 
 LlmToolName = Literal[
     "fleet.summary",
+    "fleet.list_robots",
     "fleet.readiness",
     "fleet.safety_stop",
     "fleet.nudge_forward",
+    "fleet.rescue_approach",
+    "fleet.rescue_search",
+    "fleet.corridor_crawl",
+    "fleet.corridor_yield",
+    "fleet.hazard_avoidance",
+    "fleet.formation",
     "fleet.plate_verify",
     "fleet.escort_return",
 ]

@@ -109,6 +109,13 @@ async def run_tests() -> None:
     cases = [
         ("stop robot_001", "fleet.safety_stop", True),
         ("move forward robot_001", "fleet.nudge_forward", True),
+        ("list robots", "fleet.list_robots", False),
+        ("rescue approach robot_001", "fleet.rescue_approach", True),
+        ("rescue search robot_001", "fleet.rescue_search", True),
+        ("corridor crawl robot_001", "fleet.corridor_crawl", True),
+        ("yield robot_001", "fleet.corridor_yield", True),
+        ("avoid hazard robot_001", "fleet.hazard_avoidance", True),
+        ("formation robot_001", "fleet.formation", True),
         ("ready robot_001", "fleet.readiness", False),
         ("让 robot_001 核验 B2 消防通道的沪A12345", "fleet.plate_verify", True),
         ("fleet summary", "fleet.summary", False),
@@ -127,6 +134,7 @@ async def run_tests() -> None:
     tools = service.list_tools(["robot_001"]).tools
     safety_stop = next(tool for tool in tools if tool.name == "fleet.safety_stop")
     nudge_forward = next(tool for tool in tools if tool.name == "fleet.nudge_forward")
+    corridor_crawl = next(tool for tool in tools if tool.name == "fleet.corridor_crawl")
     plate_verify = next(tool for tool in tools if tool.name == "fleet.plate_verify")
     assert safety_stop.backend_route == "POST /api/fleet/safety/stop"
     assert safety_stop.command_name == "emergency_stop"
@@ -134,6 +142,9 @@ async def run_tests() -> None:
     assert nudge_forward.command_name == "nudge_forward"
     assert nudge_forward.available is False
     assert nudge_forward.unavailable_reason == "not all target robots are ready"
+    assert corridor_crawl.command_name == "corridor_crawl"
+    assert corridor_crawl.available is False
+    assert corridor_crawl.unavailable_reason == "not all target robots are ready"
     assert plate_verify.available is False
     assert plate_verify.unavailable_reason == "not all target robots are ready"
 
@@ -163,6 +174,7 @@ async def run_tests() -> None:
     route_tools = llm_router.list_llm_tools(["robot_001"])
     assert any(tool.name == "fleet.safety_stop" for tool in route_tools.tools)
     assert any(tool.name == "fleet.nudge_forward" for tool in route_tools.tools)
+    assert any(tool.name == "fleet.corridor_crawl" for tool in route_tools.tools)
 
     route_plan = await llm_router.plan_llm_task(
         LlmTaskPlanRequest(message="stop robot_001", allow_llm=False),
