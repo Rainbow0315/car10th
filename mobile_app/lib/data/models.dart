@@ -220,11 +220,68 @@ class ChatMessage {
   final DateTime timestamp;
   final bool isUser;
   final String text;
+  final LlmTaskPlan? plan;
 
   const ChatMessage({
     required this.id,
     required this.timestamp,
     required this.isUser,
     required this.text,
+    this.plan,
+  });
+}
+
+class LlmTaskPlan {
+  final String planId;
+  final String assistantMessage;
+  final String source;
+  final bool requiresConfirmation;
+  final List<String> safetyNotes;
+  final List<LlmPlanStep> steps;
+
+  const LlmTaskPlan({
+    required this.planId,
+    required this.assistantMessage,
+    required this.source,
+    required this.requiresConfirmation,
+    required this.safetyNotes,
+    required this.steps,
+  });
+
+  LlmTaskPlan copyWith({
+    List<LlmPlanStep>? steps,
+  }) {
+    return LlmTaskPlan(
+      planId: planId,
+      assistantMessage: assistantMessage,
+      source: source,
+      requiresConfirmation: requiresConfirmation,
+      safetyNotes: safetyNotes,
+      steps: steps ?? this.steps,
+    );
+  }
+}
+
+class LlmPlanStep {
+  final String stepId;
+  final String tool;
+  final String title;
+  final String safetyLevel;
+  final bool requiresConfirmation;
+  final String status;
+  final Map<String, Object?> arguments;
+  final Map<String, Object?>? result;
+  final String? error;
+
+  const LlmPlanStep({
+    required this.stepId,
+    required this.tool,
+    required this.title,
+    required this.safetyLevel,
+    required this.requiresConfirmation,
+    required this.status,
+    required this.arguments,
+    this.result,
+    this.error,
   });
 }

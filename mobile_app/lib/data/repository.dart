@@ -61,6 +61,11 @@ abstract class Repository {
   Future<void> stopRobot();
 
   Future<String> chat(String prompt);
+  Future<LlmTaskPlan> planLlmTask(String prompt);
+  Future<LlmTaskPlan> executeLlmTask({
+    required String planId,
+    required bool confirmed,
+  });
 
   void dispose() {}
 }
@@ -322,6 +327,46 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
+  Future<String> chat(String prompt) async {
+    final plan = await planLlmTask(prompt);
+    return plan.assistantMessage;
+  }
+
+  @override
+  Future<LlmTaskPlan> planLlmTask(String prompt) async {
+    final json = await _postJson('/api/llm/tasks/plan', {
+      'message': prompt,
+      'robot_codes': ['robot_001'],
+      'allow_llm': true,
+      'auto_execute': false,
+    }) as Map<String, dynamic>;
+    return _llmPlanFromJson(json);
+  }
+
+  @override
+  Future<LlmTaskPlan> executeLlmTask({
+    required String planId,
+    required bool confirmed,
+  }) async {
+    final json = await _postJson('/api/llm/tasks/$planId/execute', {
+      'confirmed': confirmed,
+    }) as Map<String, dynamic>;
+    final steps = (json['steps'] as List? ?? const [])
+        .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
+        .toList();
+    return LlmTaskPlan(
+      planId: json['plan_id']?.toString() ?? planId,
+      assistantMessage: '任务已执行，下面是后端返回的真实执行结果。',
+      source: 'backend',
+      requiresConfirmation: false,
+      safetyNotes: (json['safety_notes'] as List? ?? const [])
+          .map((item) => item.toString())
+          .toList(),
+      steps: steps,
+    );
+  }
+
+  @override
   Future<InspectionMonitorStatus> startInspectionMonitor() async {
     final json = await _postJson('/api/inspection/monitor/start', {
       'topic_name': '/image_raw',
@@ -474,6 +519,37 @@ class CloudRepository extends TcpCarRepository {
       lastCheckedAt: _parseDate(json['last_checked_at']),
       lastAlarmAt: _parseDate(json['last_alarm_at']),
       lastError: json['last_error']?.toString(),
+    );
+  }
+
+  LlmTaskPlan _llmPlanFromJson(Map<String, dynamic> json) {
+    return LlmTaskPlan(
+      planId: json['plan_id']?.toString() ?? '',
+      assistantMessage: json['assistant_message']?.toString() ?? '',
+      source: json['source']?.toString() ?? 'rule_fallback',
+      requiresConfirmation: json['requires_confirmation'] == true,
+      safetyNotes: (json['safety_notes'] as List? ?? const [])
+          .map((item) => item.toString())
+          .toList(),
+      steps: (json['steps'] as List? ?? const [])
+          .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
+          .toList(),
+    );
+  }
+
+  LlmPlanStep _llmStepFromJson(Map<String, dynamic> json) {
+    final result = json['result'];
+    return LlmPlanStep(
+      stepId: json['step_id']?.toString() ?? '',
+      tool: json['tool']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      safetyLevel: json['safety_level']?.toString() ?? 'read_only',
+      requiresConfirmation: json['requires_confirmation'] == true,
+      status: json['status']?.toString() ?? 'planned',
+      arguments:
+          (json['arguments'] as Map? ?? const {}).cast<String, Object?>(),
+      result: result is Map ? result.cast<String, Object?>() : null,
+      error: json['error']?.toString(),
     );
   }
 
@@ -1012,5 +1088,70 @@ class MockRepository implements Repository {
       '后续可接入后端网关：根据区域/时间筛选告警，并生成巡检报告。',
     ].join('\n');
     return _delay(reply);
+  }
+
+  @override
+  Future<LlmTaskPlan> planLlmTask(String prompt) async {
+    final robotCode = prompt.contains('robot_002') ? 'robot_002' : 'robot_001';
+    final step = prompt.contains('急停') || prompt.toLowerCase().contains('stop')
+        ? LlmPlanStep(
+            stepId: 'step_1',
+            tool: 'fleet.safety_stop',
+            title: '安全停止小车',
+            safetyLevel: 'safe_command',
+            requiresConfirmation: true,
+            status: 'planned',
+            arguments: {'robot_codes': [robotCode]},
+          )
+        : LlmPlanStep(
+            stepId: 'step_1',
+            tool: 'fleet.summary',
+            title: '查询车队总览',
+            safetyLevel: 'read_only',
+            requiresConfirmation: false,
+            status: 'planned',
+            arguments: const {},
+          );
+    return _delay(
+      LlmTaskPlan(
+        planId: 'mock_${DateTime.now().millisecondsSinceEpoch}',
+        assistantMessage: '已生成安全任务计划，请确认后执行。',
+        source: 'mock',
+        requiresConfirmation: step.requiresConfirmation,
+        safetyNotes: const [
+          'LLM 只生成任务计划，后端负责安全校验。',
+          '不会允许直接下发任意底盘速度。',
+        ],
+        steps: [step],
+      ),
+    );
+  }
+
+  @override
+  Future<LlmTaskPlan> executeLlmTask({
+    required String planId,
+    required bool confirmed,
+  }) async {
+    return _delay(
+      LlmTaskPlan(
+        planId: planId,
+        assistantMessage: 'Mock 执行完成。',
+        source: 'mock',
+        requiresConfirmation: false,
+        safetyNotes: const ['Mock 模式未真实控制小车。'],
+        steps: const [
+          LlmPlanStep(
+            stepId: 'step_1',
+            tool: 'mock',
+            title: 'Mock 执行结果',
+            safetyLevel: 'read_only',
+            requiresConfirmation: false,
+            status: 'executed',
+            arguments: {},
+            result: {'status': 'ok'},
+          ),
+        ],
+      ),
+    );
   }
 }

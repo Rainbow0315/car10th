@@ -262,6 +262,7 @@ flutter run
 - [MQTT 配置说明](./docs/mqtt_setup.md)
 - [GitHub 分支与 CI 配置说明](./docs/github_cicd_setup.md)
 - [分布式通信与多车协同开发记录](./docs/fleet_communication.md)
+- [LLM 手机任务助手接入说明](./docs/llm_mobile_task_assistant.md)
 - [小车端长期稳定部署方案](./docs/robot_agent_cicd.md)
 - [小车端自动 CD 配置手册](./docs/robot_agent_cd_runbook.md)
 - [后端控车联调说明](./docs/teleop_backend.md)
