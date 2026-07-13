@@ -38,18 +38,22 @@ class LlmTaskService:
         robot_context = self._robot_context(request.robot_codes)
         steps: list[LlmTaskPlanStep] = []
         source = "rule_fallback"
+        llm_error: Optional[str] = None
 
         if request.allow_llm and settings.llm_api_key and settings.llm_api_base:
             try:
                 steps = await self._plan_with_llm(request, robot_context)
                 source = "llm"
-            except Exception:
+            except Exception as exc:
+                llm_error = self._safe_error(exc)
                 steps = []
 
         if not steps:
             steps = self._plan_with_rules(request)
 
         safety_notes = self._safety_notes(steps)
+        if llm_error:
+            safety_notes.append(f"LLM 调用失败，已自动使用规则兜底：{llm_error}")
         plan = LlmTaskPlanResponse(
             plan_id=uuid.uuid4().hex,
             assistant_message=self._assistant_message(steps, source),
@@ -432,6 +436,13 @@ class LlmTaskService:
         if isinstance(value, str) and value.strip():
             return [value.strip()]
         return []
+
+    def _safe_error(self, exc: Exception) -> str:
+        message = str(exc).strip() or exc.__class__.__name__
+        api_key = settings.llm_api_key
+        if api_key:
+            message = message.replace(api_key, "***")
+        return message[:240]
 
 
 llm_task_service = LlmTaskService()
