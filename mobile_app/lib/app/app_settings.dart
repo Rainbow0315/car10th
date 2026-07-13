@@ -7,7 +7,10 @@ class AppSettings extends ChangeNotifier {
   static const _kApiBaseUrlKey = 'settings.apiBaseUrl';
   static const _defaultTcpHost = '192.168.137.239';
   static const _defaultTcpPort = 6001;
-  static const _defaultApiBaseUrl = 'http://192.168.137.51:8000';
+  static const _defaultApiBaseUrl = 'http://192.168.137.239:8000';
+  static const _legacyApiBaseUrls = {
+    'http://192.168.137.51:8000',
+  };
 
   String _tcpHost = _defaultTcpHost;
   int _tcpPort = _defaultTcpPort;
@@ -27,7 +30,15 @@ class AppSettings extends ChangeNotifier {
     if (savedTcpPort == 6000) {
       await prefs.setInt(_kTcpPortKey, _defaultTcpPort);
     }
-    _apiBaseUrl = prefs.getString(_kApiBaseUrlKey) ?? _apiBaseUrl;
+    final savedApiBaseUrl = prefs.getString(_kApiBaseUrlKey);
+    _apiBaseUrl =
+        savedApiBaseUrl == null || _legacyApiBaseUrls.contains(savedApiBaseUrl)
+            ? _defaultApiBaseUrl
+            : savedApiBaseUrl;
+    if (savedApiBaseUrl != null &&
+        _legacyApiBaseUrls.contains(savedApiBaseUrl)) {
+      await prefs.setString(_kApiBaseUrlKey, _defaultApiBaseUrl);
+    }
     notifyListeners();
   }
 
