@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate deployment configuration
-        shell: pwsh
+        shell: powershell
         run: |
           $required = @("ROBOT_HOST", "ROBOT_USER", "MQTT_HOST")
           foreach ($name in $required) {
@@ -53,7 +53,7 @@ jobs:
           }
 
       - name: Deploy to robot
-        shell: pwsh
+        shell: powershell
         run: |
           $deployArgs = @(
             "-RobotHost", $env:ROBOT_HOST,
@@ -75,9 +75,11 @@ jobs:
 
           if ($env:ROBOT_SSH_PRIVATE_KEY) {
             $keyPath = Join-Path $env:RUNNER_TEMP "car10th_robot_agent_ed25519"
-            Set-Content -Path $keyPath -Value $env:ROBOT_SSH_PRIVATE_KEY -NoNewline
+            $key = $env:ROBOT_SSH_PRIVATE_KEY.Trim() -replace "`r`n", "`n"
+            Set-Content -Path $keyPath -Value $key -NoNewline -Encoding ascii
+            $runnerUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
             icacls $keyPath /inheritance:r | Out-Null
-            icacls $keyPath /grant:r "${env:USERNAME}:F" | Out-Null
+            icacls $keyPath /grant:r "$($runnerUser):F" | Out-Null
             $deployArgs += @("-IdentityFile", $keyPath)
           }
 

@@ -71,7 +71,7 @@ nohup python3 -m apps.ros_bridge.main \
 nohup python3 -m apps.tcp_car_bridge.main \
   > /tmp/tcp_car_bridge.log 2>&1 &
 
-nohup uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
+nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
   > /tmp/web_api.log 2>&1 &
 ```
 
@@ -154,9 +154,9 @@ tail -40 /tmp/navigation_dwa_fast.log
 - `/odom` publisher 是 `ekf_filter_node`
 - 日志里有 `Managed nodes are active`
 
-## 4. AI 检测模式
+## 4. 摄像头预览和 AI 检测
 
-如果要跑道路病害/异物检测，还需要 RGB 图像和 AI 服务。
+如果只验证 App 摄像头预览，先启动 RGB 图像和 AI 服务即可，不需要启动 YOLO monitor。
 
 ### 4.1 启动 USB 摄像头
 
@@ -166,6 +166,8 @@ ros2 launch usb_cam demo_launch.py
 
 预期有 `/image_raw`。如果 `show_image.py` 报 OpenCV GUI 错误，一般可以先忽略，只要 `usb_cam_node_exe` 还在发布图像。
 
+注意：摄像头物理端口只有一个，不要让多个进程同时打开 `/dev/video0`。推荐只由 `usb_cam` 打开摄像头，App 预览和 AI 检测都从 ROS `/image_raw` 间接取图。
+
 检查：
 
 ```bash
@@ -173,18 +175,68 @@ ros2 topic list | grep image_raw
 ros2 topic hz /image_raw
 ```
 
-### 4.2 启动 AI 服务
+### 4.2 启动 AI 服务和主后端
+
+`ai_service` 负责从 ROS `/image_raw` 抓帧并返回 JPEG；`web_api` 负责给 App 暴露 `8000` 网关。
 
 ```bash
 cd /root/car10th/backend
-nohup uvicorn apps.ai_service.main:app --host 0.0.0.0 --port 8002 \
+
+export PYTHONPATH=/root/yolov7:$PYTHONPATH
+
+nohup python3 -m uvicorn apps.ai_service.main:app --host 0.0.0.0 --port 8002 \
   > /tmp/ai_service.log 2>&1 &
+
+nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
+  > /tmp/web_api.log 2>&1 &
 ```
 
 检查：
 
 ```bash
 curl http://127.0.0.1:8002/health
+curl http://127.0.0.1:8000/health
+curl "http://127.0.0.1:8000/api/inspection/camera/snapshot?topic_name=/image_raw&timeout_sec=3" \
+  -o /tmp/app_snapshot.jpg
+ls -lh /tmp/app_snapshot.jpg
+```
+
+Windows 上也可以不启动模型，只验证视频预览链路：
+
+```powershell
+cd D:\code\car\car10th
+.\scripts\probe_camera_yolo_snapshot.ps1
+```
+
+预期：
+
+- `web_api` 和 `ai_service` health 都是 `ok`
+- 能保存约 `150 KB` 左右的 JPEG
+- `monitor/status.running=false` 表示还没启动 YOLO monitor
+
+### 4.3 启动 YOLO 检测
+
+确认视频预览可用后，再启动 YOLO monitor。建议先只开 `puddle`、`fod`，后续模型微调和压力验证再逐步加 `crack`。
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/monitor/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic_name": "/image_raw",
+    "interval_sec": 1.0,
+    "timeout_sec": 10,
+    "robot_code": "robot_001",
+    "camera_code": "usb_cam",
+    "enabled_models": ["puddle", "fod"]
+  }'
+
+curl http://127.0.0.1:8000/api/inspection/monitor/status
+```
+
+停止：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/inspection/monitor/stop
 ```
 
 ## 5. 常见故障速查
@@ -266,7 +318,7 @@ nohup ros2 launch yahboomcar_nav navigation_dwa_fast_launch.py > /tmp/navigation
 
 cd /root/car10th/backend
 nohup python3 -m apps.ros_bridge.main > /tmp/ros_bridge.log 2>&1 &
-nohup uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp/web_api.log 2>&1 &
+nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp/web_api.log 2>&1 &
 ```
 
 最后验证：

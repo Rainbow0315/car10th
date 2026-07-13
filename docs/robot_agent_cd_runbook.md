@@ -58,6 +58,34 @@ MQTT robot 密码: parking_robot_dev
 
 历史网络记录：2026-07-12 曾使用小车 IP `192.168.247.227`、电脑 MQTT host `192.168.247.64`；2026-07-13 切换到当前 `192.168.137.*` 网段。
 
+## 2026-07-13 实车部署记录
+
+本次已经用同一套 release/current 机制从部署机手动触发了一次实车部署，作为 GitHub Actions CD 的降级验证：
+
+```text
+小车 IP: 192.168.137.239
+部署目录: /home/jetson/Project/car10th
+部署 release: /home/jetson/Project/car10th/releases/release-20260713143309-880a31e-worktree
+DEPLOYED_COMMIT: 880a31e-worktree-20260713143309
+systemd service: car10th-robot-agent active (running)
+MQTT_BROKER_HOST: 192.168.137.20
+```
+
+这次验证说明：
+
+- SSH/SCP 到小车可行。
+- 小车端 release 目录、`current` 软链接、`DEPLOYED_COMMIT` 标记可用。
+- `car10th-robot-agent` 可以由 systemd 拉起并保持运行。
+- 当 MQTT broker 暂时不可达时，agent 不再因为首次连接超时而退出，而是保持进程等待后续重连。
+
+当前未完成的是上游 MQTT 连通：
+
+```text
+nc -vz -w 3 192.168.137.20 1883
+```
+
+结果为超时。原因是当前 Windows 部署机未启动 1883 端口的 MQTT broker，Docker Desktop 也未运行。答辩时应把这件事说成“CD 已经部署到车，业务上线还需要启动 MQTT/后端服务”，不要把它说成完整业务闭环已经在线。
+
 确认小车信息的命令：
 
 ```bash
@@ -270,6 +298,14 @@ ssh jetson@192.168.137.239 "cat /home/jetson/Project/car10th/current/DEPLOYED_CO
 ssh jetson@192.168.137.239 "systemctl is-active car10th-robot-agent"
 ssh jetson@192.168.137.239 "systemctl status car10th-robot-agent --no-pager"
 ```
+
+验收时建议分三层判断：
+
+1. 部署层：`DEPLOYED_COMMIT` 是否等于本次部署标记。
+2. 进程层：`systemctl is-active car10th-robot-agent` 是否为 `active`。
+3. 业务层：小车到 `MQTT_HOST:1883` 是否可达，后端 `/api/fleet/robots` 是否能看到 `robot_001 online`。
+
+如果前两层通过、第三层失败，说明 CD 到车成功，但 MQTT/后端链路没有启动或网络地址选错。
 
 在小车上看实时日志：
 

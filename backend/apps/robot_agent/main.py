@@ -48,7 +48,7 @@ class RobotAgent:
         self.client.reconnect_delay_set(min_delay=1, max_delay=10)
 
     def run(self) -> None:
-        self.client.connect(
+        self.client.connect_async(
             settings.mqtt_broker_host,
             settings.mqtt_broker_port,
             keepalive=settings.mqtt_keepalive,

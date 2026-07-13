@@ -164,7 +164,68 @@ docker exec ros_x3_fixed bash -lc \
 docker exec ros_x3_fixed bash -lc 'tail -120 /tmp/ai_service.log'
 ```
 
-## 5. 验证 ROS 图像抓帧与模型检测
+## 5. 验证 App 摄像头 snapshot（不启动模型）
+
+本步骤只验证视频预览链路，不启动 YOLO 模型：
+
+```text
+App/Windows
+  -> web_api:8000/api/inspection/camera/snapshot
+  -> ai_service:8002/api/camera/snapshot
+  -> ROS2 /image_raw
+  -> JPEG snapshot
+```
+
+容器内验证：
+
+```bash
+docker exec ros_x3_fixed bash -lc '
+curl -sS --max-time 12 \
+  "http://127.0.0.1:8002/api/camera/snapshot?topic_name=/image_raw&timeout_sec=5" \
+  -o /tmp/snapshot_ai.jpg
+ls -lh /tmp/snapshot_ai.jpg
+
+curl -sS --max-time 12 \
+  "http://127.0.0.1:8000/api/inspection/camera/snapshot?topic_name=/image_raw&timeout_sec=5" \
+  -o /tmp/snapshot_web.jpg
+ls -lh /tmp/snapshot_web.jpg
+'
+```
+
+Windows 验证：
+
+```powershell
+cd D:\code\car\car10th
+.\scripts\probe_camera_yolo_snapshot.ps1
+```
+
+2026-07-13 已验证结果：
+
+- `usb_cam` 发布 `/image_raw`、`/camera_info` 和 `/image_raw/compressed`。
+- `ai_service:8002/health` 正常。
+- `web_api:8000/health` 正常。
+- Windows 通过 `192.168.137.239:8000` 可以保存真实摄像头 JPEG。
+- 单帧 JPEG 大约 `150 KB`。
+- 未启动模型时，`monitor/status.running=false`。
+
+单摄像头端口注意事项：
+
+- 物理摄像头只能稳定地被一个采集进程打开。
+- 当前推荐让 `usb_cam` 独占摄像头设备，并发布 ROS `/image_raw`。
+- App 预览、snapshot、YOLO 检测都应订阅或间接消费 `/image_raw`，不要再单独打开 `/dev/video0`。
+- 本地代码已将 HTTP snapshot 和 `detect-ros-image` 改为共享 `ai_service` 内的持久订阅 + 最新帧缓存；车上是否已经部署，以 `/api/inspection/camera/status` 是否存在且 `has_frame=true` 为准。
+- 如果不做持久帧缓存，不建议承诺“实时直播 + YOLO 推理稳定同步”。
+
+2026-07-13 短时并发试验结论：
+
+- `puddle/fod` monitor 与每秒 snapshot 同跑约 `20s`，未得到有效内存压力结论。
+- monitor 未成功处理帧，`total_frames=0`，`last_error=500`。
+- 车上曾出现 `InspectionPipeline` 缺 `inspect_ros_topic()` 的旧文件问题，已通过同步 `backend/apps/ai_service/pipelines/inspection.py` 修复。
+- 修复后仍观察到临时抓帧超时；重启 `ai_service` 后 snapshot 恢复。
+- 判断：当前瓶颈首先是临时 ROS 订阅抓帧的并发稳定性，不是模型微调或 Jetson 内存结论。
+- 下一步若继续研究同步，应先做持久订阅帧缓存，再测模型显存和延迟。
+
+## 6. 验证 ROS 图像抓帧与模型检测
 
 默认三模型检测：
 
@@ -200,7 +261,7 @@ curl -sS --max-time 300 \
 '
 ```
 
-## 6. 当前关键修复点
+## 7. 当前关键修复点
 
 1. `ros_x3_fixed` 必须带 Jetson GPU 设备权限运行，否则 `torch.cuda.is_available()` 为 `False`。
 2. 容器必须能找到 CUDA/cuDNN 动态库，尤其是：
@@ -212,7 +273,7 @@ curl -sS --max-time 300 \
 4. `ultralytics` 在 Jetson 环境下不要依赖 PyPI `torchvision.ops.nms`，当前容器内已改为使用 Ultralytics 纯 PyTorch NMS。
 5. `astra_camera` 当前仍不是主线；临时稳定 RGB 输入是 `usb_cam` 发布的 `/image_raw`。
 
-## 7. 后续阶段拆解：App 预警闭环
+## 8. 后续阶段拆解：App 预警闭环
 
 最终目标：手机 App 能实时/准实时收到模型检测出的道路病害或异物预警。
 
@@ -313,7 +374,7 @@ curl -sS --max-time 300 \
 - 是否必须在图片上绘制检测框。
 - 是否需要声音/震动/系统通知。
 
-## 8. 持续检测与 App 预警推送
+## 9. 持续检测与 App 预警推送
 
 本阶段新增目标：
 
@@ -442,7 +503,7 @@ curl -X POST http://127.0.0.1:8000/api/inspection/alarms/1/handle \
   -d '{"remark":"已现场确认并处理"}'
 ```
 
-## 9. 后续建议
+## 10. 后续建议
 
 下一阶段优先做：
 
