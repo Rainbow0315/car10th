@@ -319,8 +319,13 @@ class TcpCarRepository extends MockRepository {
 class CloudRepository extends TcpCarRepository {
   CloudRepository({required super.settings});
 
-  Uri _uri(String path, [Map<String, String?> query = const {}]) {
-    final base = settings.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+  Uri _uri(
+    String path, {
+    Map<String, String?> query = const {},
+    String? baseUrl,
+  }) {
+    final base =
+        (baseUrl ?? settings.apiBaseUrl).replaceAll(RegExp(r'/+$'), '');
     final cleanPath = path.startsWith('/') ? path : '/$path';
     final params = <String, String>{};
     for (final entry in query.entries) {
@@ -337,11 +342,14 @@ class CloudRepository extends TcpCarRepository {
     String topicName = '/image_raw',
     int? cacheBust,
   }) {
-    return _uri('/api/inspection/camera/snapshot', {
-      'topic_name': topicName,
-      'timeout_sec': '3.0',
-      if (cacheBust != null) 't': cacheBust.toString(),
-    }).toString();
+    return _uri(
+      '/api/inspection/camera/snapshot',
+      query: {
+        'topic_name': topicName,
+        'timeout_sec': '3.0',
+        if (cacheBust != null) 't': cacheBust.toString(),
+      },
+    ).toString();
   }
 
   @override
@@ -349,27 +357,35 @@ class CloudRepository extends TcpCarRepository {
     String topicName = '/image_raw',
     double fps = 5.0,
   }) {
-    return _uri('/api/inspection/camera/mjpeg', {
-      'topic_name': topicName,
-      'fps': fps.toStringAsFixed(1),
-      'timeout_sec': '3.0',
-    }).toString();
+    return _uri(
+      '/api/inspection/camera/mjpeg',
+      query: {
+        'topic_name': topicName,
+        'fps': fps.toStringAsFixed(1),
+        'timeout_sec': '3.0',
+      },
+    ).toString();
   }
 
   Future<dynamic> _getJson(
-    String path, [
+    String path, {
     Map<String, String?> query = const {},
-  ]) async {
+    String? baseUrl,
+  }) async {
     final response = await http
-        .get(_uri(path, query))
+        .get(_uri(path, query: query, baseUrl: baseUrl))
         .timeout(const Duration(seconds: 10));
     return _decode(response);
   }
 
-  Future<dynamic> _postJson(String path, Map<String, Object?> body) async {
+  Future<dynamic> _postJson(
+    String path,
+    Map<String, Object?> body, {
+    String? baseUrl,
+  }) async {
     final response = await http
         .post(
-          _uri(path),
+          _uri(path, baseUrl: baseUrl),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(body),
         )
@@ -387,9 +403,8 @@ class CloudRepository extends TcpCarRepository {
 
   @override
   Future<InspectionMonitorStatus> getInspectionMonitorStatus() async {
-    final json =
-        await _getJson('/api/inspection/monitor/status')
-            as Map<String, dynamic>;
+    final json = await _getJson('/api/inspection/monitor/status')
+        as Map<String, dynamic>;
     return _monitorFromJson(json);
   }
 
@@ -401,18 +416,25 @@ class CloudRepository extends TcpCarRepository {
 
   @override
   Future<LlmRuntimeStatus> getLlmRuntimeStatus() async {
-    final json = await _getJson('/api/llm/status') as Map<String, dynamic>;
+    final json = await _getJson(
+      '/api/llm/status',
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     return _llmRuntimeStatusFromJson(json);
   }
 
   @override
   Future<LlmTaskPlan> planLlmTask(String prompt) async {
-    final json = await _postJson('/api/llm/tasks/plan', {
-      'message': prompt,
-      'robot_codes': ['robot_001'],
-      'allow_llm': true,
-      'auto_execute': false,
-    }) as Map<String, dynamic>;
+    final json = await _postJson(
+      '/api/llm/tasks/plan',
+      {
+        'message': prompt,
+        'robot_codes': ['robot_001'],
+        'allow_llm': true,
+        'auto_execute': false,
+      },
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     return _llmPlanFromJson(json);
   }
 
@@ -421,9 +443,13 @@ class CloudRepository extends TcpCarRepository {
     required String planId,
     required bool confirmed,
   }) async {
-    final json = await _postJson('/api/llm/tasks/$planId/execute', {
-      'confirmed': confirmed,
-    }) as Map<String, dynamic>;
+    final json = await _postJson(
+      '/api/llm/tasks/$planId/execute',
+      {
+        'confirmed': confirmed,
+      },
+      baseUrl: settings.llmApiBaseUrl,
+    ) as Map<String, dynamic>;
     final steps = (json['steps'] as List? ?? const [])
         .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
         .toList();
@@ -441,16 +467,14 @@ class CloudRepository extends TcpCarRepository {
 
   @override
   Future<InspectionMonitorStatus> startInspectionMonitor() async {
-    final json =
-        await _postJson('/api/inspection/monitor/start', {
-              'topic_name': '/image_raw',
-              'interval_sec': 1.0,
-              'timeout_sec': 10.0,
-              'robot_code': 'robot_001',
-              'camera_code': 'usb_cam',
-              'enabled_models': ['crack', 'puddle', 'fod'],
-            })
-            as Map<String, dynamic>;
+    final json = await _postJson('/api/inspection/monitor/start', {
+      'topic_name': '/image_raw',
+      'interval_sec': 1.0,
+      'timeout_sec': 10.0,
+      'robot_code': 'robot_001',
+      'camera_code': 'usb_cam',
+      'enabled_models': ['crack', 'puddle', 'fod'],
+    }) as Map<String, dynamic>;
     return _monitorFromJson(json);
   }
 
@@ -549,14 +573,15 @@ class CloudRepository extends TcpCarRepository {
     RiskLevel? risk,
     AlarmStatus? status,
   }) async {
-    final json =
-        await _getJson('/api/inspection/alarms', {
-              'limit': '100',
-              'alarm_type': type == null ? null : _alarmTypeToApi(type),
-              'risk_level': risk == null ? null : _riskToApi(risk),
-              'status': status == null ? null : _statusToApi(status),
-            })
-            as Map<String, dynamic>;
+    final json = await _getJson(
+      '/api/inspection/alarms',
+      query: {
+        'limit': '100',
+        'alarm_type': type == null ? null : _alarmTypeToApi(type),
+        'risk_level': risk == null ? null : _riskToApi(risk),
+        'status': status == null ? null : _statusToApi(status),
+      },
+    ) as Map<String, dynamic>;
     final items = (json['items'] as List? ?? const []);
     return items
         .map((item) => _alarmFromJson((item as Map).cast<String, dynamic>()))
@@ -610,7 +635,9 @@ class CloudRepository extends TcpCarRepository {
           .map((item) => item.toString())
           .toList(),
       steps: (json['steps'] as List? ?? const [])
-          .map((item) => _llmStepFromJson((item as Map).cast<String, dynamic>()))
+          .map(
+            (item) => _llmStepFromJson((item as Map).cast<String, dynamic>()),
+          )
           .toList(),
     );
   }
@@ -663,9 +690,8 @@ class CloudRepository extends TcpCarRepository {
       cameraCode: json['camera_code']?.toString(),
       detectionModel: json['detection_model']?.toString(),
       detectionLabel: json['detection_label']?.toString(),
-      bbox: (json['bbox'] as List? ?? const [])
-          .map((e) => _asDouble(e))
-          .toList(),
+      bbox:
+          (json['bbox'] as List? ?? const []).map((e) => _asDouble(e)).toList(),
       remark: json['handle_remark']?.toString(),
     );
   }
@@ -751,16 +777,14 @@ class CloudRepository extends TcpCarRepository {
               y: _asDouble(pose['y']),
               yaw: _asDouble(pose['yaw']),
             ),
-      laserPoints: (json['laser_points'] as List? ?? const [])
-          .map((item) {
-            final point = (item as Map).cast<String, dynamic>();
-            return MapPoint(
-              x: _asDouble(point['x']),
-              y: _asDouble(point['y']),
-              yaw: 0,
-            );
-          })
-          .toList(growable: false),
+      laserPoints: (json['laser_points'] as List? ?? const []).map((item) {
+        final point = (item as Map).cast<String, dynamic>();
+        return MapPoint(
+          x: _asDouble(point['x']),
+          y: _asDouble(point['y']),
+          yaw: 0,
+        );
+      }).toList(growable: false),
       data: (json['data'] as List? ?? const [])
           .map((value) => _asInt(value))
           .toList(growable: false),
@@ -932,9 +956,8 @@ class MockRepository implements Repository {
       intervalSec: 1,
       totalFrames: _monitorRunning ? 24 : 0,
       totalAlarmFrames: _monitorRunning ? 3 : 0,
-      totalAlarms: _alarms
-          .where((a) => a.status == AlarmStatus.unhandled)
-          .length,
+      totalAlarms:
+          _alarms.where((a) => a.status == AlarmStatus.unhandled).length,
       startedAt: _monitorRunning
           ? DateTime.now().subtract(const Duration(minutes: 3))
           : null,
@@ -1192,9 +1215,8 @@ class MockRepository implements Repository {
     final trimmed = prompt.trim();
     if (trimmed.isEmpty) return _delay('请输入要查询的问题。');
     final total = _alarms.length;
-    final unhandled = _alarms
-        .where((a) => a.status == AlarmStatus.unhandled)
-        .length;
+    final unhandled =
+        _alarms.where((a) => a.status == AlarmStatus.unhandled).length;
     final high = _alarms
         .where(
           (a) => a.risk == RiskLevel.high && a.status == AlarmStatus.unhandled,
@@ -1231,7 +1253,9 @@ class MockRepository implements Repository {
             safetyLevel: 'safe_command',
             requiresConfirmation: true,
             status: 'planned',
-            arguments: {'robot_codes': [robotCode]},
+            arguments: {
+              'robot_codes': [robotCode]
+            },
           )
         : const LlmPlanStep(
             stepId: 'step_1',
