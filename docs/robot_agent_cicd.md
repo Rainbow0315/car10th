@@ -1,5 +1,9 @@
 # 小车端长期稳定部署方案
 
+如果要配置 GitHub Actions + self-hosted runner 的自动 CD，请优先阅读：
+
+- [小车端自动 CD 配置手册](./robot_agent_cd_runbook.md)
+
 ## 目标
 
 小车 Ubuntu 不能稳定访问 GitHub，因此不让小车直接拉代码。推荐长期部署链路：

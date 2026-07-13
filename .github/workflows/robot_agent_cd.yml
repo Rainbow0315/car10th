@@ -1,0 +1,88 @@
+name: Robot Agent CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      install_service:
+        description: "Install or refresh the systemd service on the robot"
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: robot-agent-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-robot-agent:
+    name: Deploy robot agent
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, car10th-deployer]
+
+    env:
+      ROBOT_HOST: ${{ vars.ROBOT_HOST }}
+      ROBOT_USER: ${{ vars.ROBOT_USER }}
+      ROBOT_REMOTE_DIR: ${{ vars.ROBOT_REMOTE_DIR }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      MQTT_HOST: ${{ vars.MQTT_HOST }}
+      MQTT_PORT: ${{ vars.MQTT_PORT || '1883' }}
+      ROBOT_CODE: ${{ vars.ROBOT_CODE || 'robot_001' }}
+      MQTT_ROBOT_USERNAME: ${{ vars.MQTT_ROBOT_USERNAME || 'parking_robot' }}
+      MQTT_ROBOT_PASSWORD: ${{ secrets.MQTT_ROBOT_PASSWORD }}
+      ROBOT_SSH_PRIVATE_KEY: ${{ secrets.ROBOT_SSH_PRIVATE_KEY }}
+      INSTALL_SERVICE: ${{ github.event.inputs.install_service || 'false' }}
+
+    steps:
+      - name: Checkout stable main code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        shell: pwsh
+        run: |
+          $required = @("ROBOT_HOST", "ROBOT_USER", "MQTT_HOST")
+          foreach ($name in $required) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "Missing required GitHub Actions variable: $name"
+            }
+          }
+
+      - name: Deploy to robot
+        shell: pwsh
+        run: |
+          $deployArgs = @(
+            "-RobotHost", $env:ROBOT_HOST,
+            "-RobotUser", $env:ROBOT_USER,
+            "-SshPort", $env:SSH_PORT,
+            "-MqttHost", $env:MQTT_HOST,
+            "-MqttPort", $env:MQTT_PORT,
+            "-RobotCode", $env:ROBOT_CODE,
+            "-MqttRobotUsername", $env:MQTT_ROBOT_USERNAME
+          )
+
+          if ($env:ROBOT_REMOTE_DIR) {
+            $deployArgs += @("-RemoteDir", $env:ROBOT_REMOTE_DIR)
+          }
+
+          if ($env:MQTT_ROBOT_PASSWORD) {
+            $deployArgs += @("-MqttRobotPassword", $env:MQTT_ROBOT_PASSWORD)
+          }
+
+          if ($env:ROBOT_SSH_PRIVATE_KEY) {
+            $keyPath = Join-Path $env:RUNNER_TEMP "car10th_robot_agent_ed25519"
+            Set-Content -Path $keyPath -Value $env:ROBOT_SSH_PRIVATE_KEY -NoNewline
+            icacls $keyPath /inheritance:r | Out-Null
+            icacls $keyPath /grant:r "${env:USERNAME}:F" | Out-Null
+            $deployArgs += @("-IdentityFile", $keyPath)
+          }
+
+          if ($env:INSTALL_SERVICE -eq "true") {
+            $deployArgs += @("-InstallService")
+          }
+
+          & .\scripts\deploy_robot_agent.ps1 @deployArgs
