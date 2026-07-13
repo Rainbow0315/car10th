@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 import httpx
 from fastapi import HTTPException, status
@@ -21,6 +21,65 @@ class InspectionService:
 
     def detect_ros_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/inspection/detect-ros-image", json=payload)
+
+    def camera_snapshot(self, topic_name: str, timeout_sec: float) -> Tuple[bytes, str]:
+        url = f"{settings.ai_service_http_url.rstrip('/')}/api/camera/snapshot"
+        try:
+            with httpx.Client(timeout=httpx.Timeout(timeout_sec + 5.0, connect=5.0)) as client:
+                response = client.get(
+                    url,
+                    params={"topic_name": topic_name, "timeout_sec": timeout_sec},
+                )
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"AI service camera snapshot is unreachable at {settings.ai_service_http_url}: {exc}",
+            ) from exc
+
+        if response.is_success:
+            return response.content, response.headers.get("content-type", "image/jpeg")
+
+        try:
+            body = response.json()
+        except ValueError:
+            detail: Any = response.text or f"ai_service returned HTTP {response.status_code}"
+        else:
+            detail = body.get("detail", body)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    def camera_status(self) -> Dict[str, Any]:
+        return self._request("GET", "/api/camera/status")
+
+    def camera_mjpeg_stream(self, topic_name: str, fps: float, timeout_sec: float) -> Iterator[bytes]:
+        url = f"{settings.ai_service_http_url.rstrip('/')}/api/camera/mjpeg"
+        timeout = httpx.Timeout(None, connect=5.0)
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                with client.stream(
+                    "GET",
+                    url,
+                    params={
+                        "topic_name": topic_name,
+                        "fps": fps,
+                        "timeout_sec": timeout_sec,
+                    },
+                ) as response:
+                    if response.status_code < 200 or response.status_code >= 300:
+                        try:
+                            detail: Any = response.json().get("detail")
+                        except ValueError:
+                            detail = response.text or f"ai_service returned HTTP {response.status_code}"
+                        raise HTTPException(status_code=response.status_code, detail=detail)
+                    for chunk in response.iter_bytes():
+                        if chunk:
+                            yield chunk
+        except HTTPException:
+            raise
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"AI service MJPEG stream is unreachable at {settings.ai_service_http_url}: {exc}",
+            ) from exc
 
     def download_frame(self, image_path: str, output_dir: str) -> Optional[str]:
         if not image_path:

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from apps.web_api.services.inspection_alarm_service import inspection_alarm_service
@@ -38,6 +38,37 @@ def detect_image(payload: ImageInspectionRequest):
 @router.post("/detect-ros-image", response_model=ImageInspectionResponse, summary="Capture one ROS image frame and inspect it")
 def detect_ros_image(payload: RosTopicInspectionRequest):
     return inspection_service.detect_ros_image(payload.model_dump())
+
+
+@router.get("/camera/snapshot", summary="Capture one ROS camera frame as JPEG")
+def camera_snapshot(
+    topic_name: str = Query("/image_raw", description="ROS image topic"),
+    timeout_sec: float = Query(3.0, ge=0.5, le=10.0, description="Frame wait timeout in seconds"),
+):
+    content, media_type = inspection_service.camera_snapshot(topic_name, timeout_sec)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/camera/status", summary="Camera frame cache status")
+def camera_status():
+    return inspection_service.camera_status()
+
+
+@router.get("/camera/mjpeg", summary="Stream ROS camera frames as MJPEG")
+def camera_mjpeg(
+    topic_name: str = Query("/image_raw", description="ROS image topic"),
+    fps: float = Query(5.0, ge=0.5, le=10.0, description="MJPEG frame rate"),
+    timeout_sec: float = Query(3.0, ge=0.5, le=10.0, description="Frame wait timeout in seconds"),
+):
+    return StreamingResponse(
+        inspection_service.camera_mjpeg_stream(topic_name, fps, timeout_sec),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/monitor/start", response_model=InspectionMonitorStatusResponse, summary="Start continuous ROS image inspection")

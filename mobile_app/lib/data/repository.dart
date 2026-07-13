@@ -9,6 +9,15 @@ import '../app/app_settings.dart';
 import 'models.dart';
 
 abstract class Repository {
+  String cameraSnapshotUrl({
+    String topicName = '/image_raw',
+    int? cacheBust,
+  });
+  String cameraMjpegUrl({
+    String topicName = '/image_raw',
+    double fps = 5.0,
+  });
+
   Future<DashboardStats> getDashboardStats();
   Future<RobotStatus> getRobotStatus({required String robotId});
   Future<InspectionMonitorStatus> getInspectionMonitorStatus();
@@ -292,6 +301,30 @@ class CloudRepository extends TcpCarRepository {
     }
     return Uri.parse('$base$cleanPath')
         .replace(queryParameters: params.isEmpty ? null : params);
+  }
+
+  @override
+  String cameraSnapshotUrl({
+    String topicName = '/image_raw',
+    int? cacheBust,
+  }) {
+    return _uri('/api/inspection/camera/snapshot', {
+      'topic_name': topicName,
+      'timeout_sec': '3.0',
+      if (cacheBust != null) 't': cacheBust.toString(),
+    }).toString();
+  }
+
+  @override
+  String cameraMjpegUrl({
+    String topicName = '/image_raw',
+    double fps = 5.0,
+  }) {
+    return _uri('/api/inspection/camera/mjpeg', {
+      'topic_name': topicName,
+      'fps': fps.toStringAsFixed(1),
+      'timeout_sec': '3.0',
+    }).toString();
   }
 
   Future<dynamic> _getJson(String path,
@@ -741,6 +774,23 @@ class MockRepository implements Repository {
   @override
   void dispose() {}
 
+  @override
+  String cameraSnapshotUrl({
+    String topicName = '/image_raw',
+    int? cacheBust,
+  }) {
+    final seed = cacheBust ?? DateTime.now().millisecondsSinceEpoch;
+    return 'https://placehold.co/640x360/png?text=Camera+$seed';
+  }
+
+  @override
+  String cameraMjpegUrl({
+    String topicName = '/image_raw',
+    double fps = 5.0,
+  }) {
+    return cameraSnapshotUrl(topicName: topicName);
+  }
+
   void _seed() {
     _waypoints.addAll([
       const Waypoint(
@@ -1132,14 +1182,14 @@ class MockRepository implements Repository {
             status: 'planned',
             arguments: {'robot_codes': [robotCode]},
           )
-        : LlmPlanStep(
+        : const LlmPlanStep(
             stepId: 'step_1',
             tool: 'fleet.summary',
             title: '查询车队总览',
             safetyLevel: 'read_only',
             requiresConfirmation: false,
             status: 'planned',
-            arguments: const {},
+            arguments: {},
           );
     return _delay(
       LlmTaskPlan(
