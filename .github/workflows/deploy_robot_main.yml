@@ -1,0 +1,102 @@
+name: Deploy Robot Main
+
+on:
+  workflow_run:
+    workflows:
+      - Project CI
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-robot-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy main to robot
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on:
+      - self-hosted
+      - windows
+
+    defaults:
+      run:
+        shell: powershell
+
+    env:
+      ROBOT_HOST: ${{ secrets.ROBOT_HOST }}
+      ROBOT_USER: ${{ vars.ROBOT_USER || 'jetson' }}
+      ROBOT_SSH_PORT: ${{ vars.ROBOT_SSH_PORT || '22' }}
+      ROBOT_REMOTE_DIR: ${{ vars.ROBOT_REMOTE_DIR || '/home/jetson/Project/car10th' }}
+      MQTT_HOST: ${{ secrets.MQTT_HOST }}
+      MQTT_PORT: ${{ vars.MQTT_PORT || '1883' }}
+      ROBOT_CODE: ${{ vars.ROBOT_CODE || 'robot_001' }}
+      ROBOT_SSH_PRIVATE_KEY: ${{ secrets.ROBOT_SSH_PRIVATE_KEY }}
+      MQTT_ROBOT_USERNAME: ${{ secrets.MQTT_ROBOT_USERNAME || 'parking_robot' }}
+      MQTT_ROBOT_PASSWORD: ${{ secrets.MQTT_ROBOT_PASSWORD || 'parking_robot_dev' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+
+      - name: Validate deployment configuration
+        run: |
+          $missing = @()
+          if (-not $env:ROBOT_HOST) { $missing += "ROBOT_HOST secret" }
+          if (-not $env:MQTT_HOST) { $missing += "MQTT_HOST secret" }
+          if (-not $env:ROBOT_SSH_PRIVATE_KEY) { $missing += "ROBOT_SSH_PRIVATE_KEY secret" }
+          if ($missing.Count -gt 0) {
+            throw "Missing deployment configuration: $($missing -join ', ')"
+          }
+
+      - name: Write SSH private key
+        id: ssh_key
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP "car10th_robot_deploy_key"
+          $key = $env:ROBOT_SSH_PRIVATE_KEY.Trim() -replace "`r`n", "`n"
+          Set-Content -LiteralPath $keyPath -Value $key -NoNewline -Encoding ascii
+          $runnerUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+          icacls $keyPath /inheritance:r | Out-Null
+          icacls $keyPath /grant:r "$($runnerUser):R" | Out-Null
+          "path=$keyPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Trust robot host key
+        run: |
+          $sshDir = Join-Path $env:USERPROFILE ".ssh"
+          New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+          ssh-keyscan -p $env:ROBOT_SSH_PORT $env:ROBOT_HOST | Out-File -FilePath (Join-Path $sshDir "known_hosts") -Append -Encoding ascii
+
+      - name: Deploy to robot Project/car10th
+        run: |
+          .\scripts\deploy_robot_agent.ps1 `
+            -RobotHost $env:ROBOT_HOST `
+            -RobotUser $env:ROBOT_USER `
+            -SshPort ([int]$env:ROBOT_SSH_PORT) `
+            -IdentityFile "${{ steps.ssh_key.outputs.path }}" `
+            -RemoteDir $env:ROBOT_REMOTE_DIR `
+            -MqttHost $env:MQTT_HOST `
+            -MqttPort ([int]$env:MQTT_PORT) `
+            -RobotCode $env:ROBOT_CODE `
+            -MqttRobotUsername $env:MQTT_ROBOT_USERNAME `
+            -MqttRobotPassword $env:MQTT_ROBOT_PASSWORD
+
+      - name: Verify deployed commit
+        run: |
+          $commit = (git rev-parse --short HEAD).Trim()
+          $remoteCommit = ssh `
+            -p $env:ROBOT_SSH_PORT `
+            -i "${{ steps.ssh_key.outputs.path }}" `
+            "$env:ROBOT_USER@$env:ROBOT_HOST" `
+            "cat '$env:ROBOT_REMOTE_DIR/current/DEPLOYED_COMMIT'"
+          if ($remoteCommit.Trim() -ne $commit) {
+            throw "Robot deployed commit '$($remoteCommit.Trim())' does not match GitHub commit '$commit'"
+          }
+          "Robot deployed commit: $commit"

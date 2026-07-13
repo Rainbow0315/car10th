@@ -67,7 +67,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
                       labelText: '接口地址',
-                      hintText: 'http://192.168.247.8:8000',
+                      hintText: 'http://192.168.137.239:8000',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -102,7 +102,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: '小车 IP',
-                      hintText: '192.168.247.227',
+                      hintText: '192.168.137.239',
                       border: OutlineInputBorder(),
                     ),
                   ),

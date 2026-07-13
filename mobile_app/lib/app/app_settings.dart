@@ -5,10 +5,12 @@ class AppSettings extends ChangeNotifier {
   static const _kTcpHostKey = 'settings.tcpHost';
   static const _kTcpPortKey = 'settings.tcpPort';
   static const _kApiBaseUrlKey = 'settings.apiBaseUrl';
+  static const _defaultTcpHost = '192.168.137.239';
+  static const _defaultApiBaseUrl = 'http://192.168.137.239:8000';
 
-  String _tcpHost = '192.168.247.227';
+  String _tcpHost = _defaultTcpHost;
   int _tcpPort = 6000;
-  String _apiBaseUrl = 'http://192.168.247.8:8000';
+  String _apiBaseUrl = _defaultApiBaseUrl;
 
   String get tcpHost => _tcpHost;
   int get tcpPort => _tcpPort;
@@ -53,9 +55,9 @@ class AppSettings extends ChangeNotifier {
     await prefs.remove(_kTcpHostKey);
     await prefs.remove(_kTcpPortKey);
     await prefs.remove(_kApiBaseUrlKey);
-    _tcpHost = '192.168.247.227';
+    _tcpHost = _defaultTcpHost;
     _tcpPort = 6000;
-    _apiBaseUrl = 'http://192.168.247.8:8000';
+    _apiBaseUrl = _defaultApiBaseUrl;
     notifyListeners();
   }
 }

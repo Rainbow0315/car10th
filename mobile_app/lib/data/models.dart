@@ -97,6 +97,44 @@ class MapPoint {
   });
 }
 
+class SlamMapOrigin {
+  final double x;
+  final double y;
+  final double yaw;
+
+  const SlamMapOrigin({
+    required this.x,
+    required this.y,
+    required this.yaw,
+  });
+}
+
+class SlamMap {
+  final bool available;
+  final String? frameId;
+  final int width;
+  final int height;
+  final double resolution;
+  final SlamMapOrigin origin;
+  final MapPoint? robotPose;
+  final List<MapPoint> laserPoints;
+  final List<int> data;
+
+  const SlamMap({
+    required this.available,
+    required this.frameId,
+    required this.width,
+    required this.height,
+    required this.resolution,
+    required this.origin,
+    required this.robotPose,
+    this.laserPoints = const [],
+    required this.data,
+  });
+
+  bool get hasGrid => available && width > 0 && height > 0 && data.isNotEmpty;
+}
+
 class AlarmEvent {
   final String id;
   final AlarmType type;

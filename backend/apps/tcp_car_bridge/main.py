@@ -164,18 +164,23 @@ bridge: Optional[TcpCarBridge] = None
 class CarTcpHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         assert bridge is not None
-        data = self.request.recv(1024)
-        if not data:
-            return
-        text = data.decode("ascii", errors="ignore")
-        frames = [part for part in text.split("#") if part.strip()]
-        for part in frames:
-            frame = part + "#"
-            try:
-                response = bridge.handle_frame(frame)
-            except Exception as exc:
-                response = f"ERR {exc}\n"
-            self.request.sendall(response.encode("ascii"))
+        buffer = ""
+        while True:
+            data = self.request.recv(1024)
+            if not data:
+                return
+            buffer += data.decode("ascii", errors="ignore")
+
+            while "#" in buffer:
+                part, buffer = buffer.split("#", 1)
+                if not part.strip():
+                    continue
+                frame = part + "#"
+                try:
+                    response = bridge.handle_frame(frame)
+                except Exception as exc:
+                    response = f"ERR {exc}\n"
+                self.request.sendall(response.encode("ascii"))
 
 
 class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.web_api.routers import auth, fleet, inspection, robot, teleop
+from apps.web_api.routers import auth, fleet, inspection, robot, slam, teleop
 from apps.web_api.services.inspection_monitor_service import inspection_monitor_service
 from apps.web_api.services.mqtt_service import mqtt_service
 from common.config import settings
@@ -49,3 +49,4 @@ app.include_router(teleop.router, prefix="/api/teleop", tags=["遥控"])
 app.include_router(robot.router, prefix="/api", tags=["小车与MQTT"])
 app.include_router(inspection.router, prefix="/api/inspection", tags=["道路检测"])
 app.include_router(fleet.router, prefix="/api/fleet", tags=["车队"])
+app.include_router(slam.router, prefix="/api/slam", tags=["建图导航"])

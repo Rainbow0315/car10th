@@ -31,7 +31,9 @@ abstract class Repository {
   Future<void> deleteWaypoint(String id);
   Future<void> upsertRoute(PatrolRoute route);
   Future<void> deleteRoute(String id);
+  Future<SlamMap> getSlamMap();
 
+  Future<void> setInitialPose({required MapPoint pose});
   Future<void> sendNavGoal({required MapPoint goal});
   Future<void> setRobotMode({required String robotId, required RobotMode mode});
   Future<void> sendForward({
@@ -395,6 +397,32 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
+  Future<SlamMap> getSlamMap() async {
+    final json = await _getJson('/api/slam/map') as Map<String, dynamic>;
+    return _slamMapFromJson(json);
+  }
+
+  @override
+  Future<void> setInitialPose({required MapPoint pose}) async {
+    await _postJson('/api/slam/initial-pose', {
+      'x': pose.x,
+      'y': pose.y,
+      'yaw': pose.yaw,
+      'frame_id': 'map',
+    });
+  }
+
+  @override
+  Future<void> sendNavGoal({required MapPoint goal}) async {
+    await _postJson('/api/slam/goal', {
+      'x': goal.x,
+      'y': goal.y,
+      'yaw': goal.yaw,
+      'frame_id': 'map',
+    });
+  }
+
+  @override
   Future<List<AlarmEvent>> listAlarms({
     AlarmType? type,
     RiskLevel? risk,
@@ -534,6 +562,42 @@ class CloudRepository extends TcpCarRepository {
       default:
         return RobotMode.standby;
     }
+  }
+
+  SlamMap _slamMapFromJson(Map<String, dynamic> json) {
+    final origin =
+        (json['origin'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final pose = (json['robot_pose'] as Map?)?.cast<String, dynamic>();
+    return SlamMap(
+      available: json['available'] == true,
+      frameId: json['frame_id']?.toString(),
+      width: _asInt(json['width']),
+      height: _asInt(json['height']),
+      resolution: _asDouble(json['resolution']),
+      origin: SlamMapOrigin(
+        x: _asDouble(origin['x']),
+        y: _asDouble(origin['y']),
+        yaw: _asDouble(origin['yaw']),
+      ),
+      robotPose: pose == null
+          ? null
+          : MapPoint(
+              x: _asDouble(pose['x']),
+              y: _asDouble(pose['y']),
+              yaw: _asDouble(pose['yaw']),
+            ),
+      laserPoints: (json['laser_points'] as List? ?? const []).map((item) {
+        final point = (item as Map).cast<String, dynamic>();
+        return MapPoint(
+          x: _asDouble(point['x']),
+          y: _asDouble(point['y']),
+          yaw: 0,
+        );
+      }).toList(growable: false),
+      data: (json['data'] as List? ?? const [])
+          .map((value) => _asInt(value))
+          .toList(growable: false),
+    );
   }
 
   DateTime? _parseDate(dynamic value) {
@@ -744,6 +808,50 @@ class MockRepository implements Repository {
   }
 
   @override
+  Future<SlamMap> getSlamMap() async {
+    const width = 48;
+    const height = 36;
+    final data = List<int>.filled(width * height, 0);
+    for (var x = 0; x < width; x++) {
+      data[x] = 100;
+      data[(height - 1) * width + x] = 100;
+    }
+    for (var y = 0; y < height; y++) {
+      data[y * width] = 100;
+      data[y * width + width - 1] = 100;
+    }
+    for (var x = 10; x < 34; x++) {
+      data[12 * width + x] = 100;
+    }
+    for (var y = 18; y < 30; y++) {
+      data[y * width + 28] = 100;
+    }
+    return _delay(
+      SlamMap(
+        available: true,
+        frameId: 'map',
+        width: width,
+        height: height,
+        resolution: 0.05,
+        origin: const SlamMapOrigin(x: -1.2, y: -0.9, yaw: 0),
+        robotPose: const MapPoint(x: 0.2, y: 0.1, yaw: 0.5),
+        laserPoints: List<MapPoint>.generate(
+          60,
+          (i) {
+            final a = i * pi / 30;
+            return MapPoint(
+              x: 0.2 + cos(a) * 0.7,
+              y: 0.1 + sin(a) * 0.7,
+              yaw: 0,
+            );
+          },
+        ),
+        data: data,
+      ),
+    );
+  }
+
+  @override
   Future<void> upsertWaypoint(Waypoint waypoint) async {
     final idx = _waypoints.indexWhere((w) => w.id == waypoint.id);
     if (idx < 0) {
@@ -787,6 +895,11 @@ class MockRepository implements Repository {
 
   @override
   Future<void> sendNavGoal({required MapPoint goal}) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> setInitialPose({required MapPoint pose}) async {
     await _delay(null);
   }
 
