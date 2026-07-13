@@ -266,7 +266,10 @@ class _ControlPageState extends State<ControlPage> {
                   Text('连接', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
                   const _KvRow(k: '协议', v: 'Yahboom TCP 私有协议'),
-                  _KvRow(k: '地址', v: '${settings.tcpHost}:${settings.tcpPort}'),
+                  _KvRow(
+                    k: '地址',
+                    v: '${settings.tcpHost}:${settings.tcpPort}',
+                  ),
                   _KvRow(k: '状态', v: _busy ? '发送中' : '空闲'),
                   _KvRow(k: '最后指令', v: _lastCommand),
                 ],
@@ -846,8 +849,13 @@ class _MjpegStreamViewState extends State<_MjpegStreamView> {
     _client = client;
     try {
       final request = await client.getUrl(Uri.parse(widget.url));
-      request.headers.set(HttpHeaders.acceptHeader, 'multipart/x-mixed-replace');
-      final response = await request.close().timeout(const Duration(seconds: 8));
+      request.headers.set(
+        HttpHeaders.acceptHeader,
+        'multipart/x-mixed-replace',
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('HTTP ${response.statusCode}');
       }

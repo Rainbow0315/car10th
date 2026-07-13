@@ -279,7 +279,8 @@ class _RuntimeStatusCard extends StatelessWidget {
         : configured
             ? '真实 LLM 已接入'
             : '当前使用规则兜底';
-    final detail = error ??
+    final detail =
+        error ??
         (status == null
             ? '正在检查后端 LLM 配置…'
             : '${status!.message}${status!.apiBaseHost == null ? '' : ' 网关：${status!.apiBaseHost}'}');
@@ -412,8 +413,11 @@ class _PlanCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.route_outlined,
-                    size: 18, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.route_outlined,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -437,8 +441,11 @@ class _PlanCard extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.verified_user_outlined,
-                          size: 16, color: theme.colorScheme.secondary),
+                      Icon(
+                        Icons.verified_user_outlined,
+                        size: 16,
+                        color: theme.colorScheme.secondary,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(note, style: theme.textTheme.bodySmall),
@@ -460,7 +467,9 @@ class _PlanCard extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.play_arrow),
-                  label: Text(plan.requiresConfirmation ? '确认并执行' : '执行计划'),
+                  label: Text(
+                    plan.requiresConfirmation ? '确认并执行' : '执行计划',
+                  ),
                 ),
               ),
             ],

@@ -83,7 +83,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                            content: Text('已保存接口地址：${settings.apiBaseUrl}')),
+                          content: Text('已保存接口地址：${settings.apiBaseUrl}'),
+                        ),
                       );
                     },
                     icon: const Icon(Icons.cloud_sync_outlined),
