@@ -53,7 +53,9 @@ class LlmTaskService:
         source = "rule_fallback"
         llm_error: Optional[str] = None
 
-        if request.allow_llm and settings.llm_api_key and settings.llm_api_base:
+        if self._is_forward_request(request.message):
+            steps = self._plan_with_rules(request)
+        elif request.allow_llm and settings.llm_api_key and settings.llm_api_base:
             try:
                 steps = await self._plan_with_llm(request, robot_context)
                 source = "llm"
@@ -147,6 +149,25 @@ class LlmTaskService:
                 for robot_code in robot_codes
             ]
             return {"commands": commands}
+        if step.tool == "fleet.nudge_forward":
+            robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            command = self._publish_command(
+                robot_code,
+                "nudge_forward",
+                {
+                    "reason": step.arguments.get("reason") or "LLM requested a brief forward movement",
+                    "source": "llm_task_planner",
+                    "motion": {
+                        "linear_x": 0.05,
+                        "linear_y": 0.0,
+                        "angular_z": 0.0,
+                        "duration": 0.8,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+            return {"command": command}
         if step.tool == "fleet.plate_verify":
             robot_code = str(step.arguments.get("verifier_robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -241,6 +262,7 @@ class LlmTaskService:
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
+                "For a brief forward movement request, use fleet.nudge_forward.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
             ],
@@ -304,6 +326,15 @@ class LlmTaskService:
         plate_number = self._plate_number(text)
         zone_id = self._zone_id(text)
 
+        if any(keyword in text for keyword in ["前进", "向前", "往前", "forward", "move forward"]):
+            return [
+                self._step(
+                    1,
+                    "fleet.nudge_forward",
+                    {"robot_code": robot_code, "reason": f"LLM parsed from: {text[:80]}"},
+                )
+            ]
+
         if any(keyword in text for keyword in ["急停", "停止", "stop", "刹车"]):
             return [
                 self._step(
@@ -341,6 +372,10 @@ class LlmTaskService:
         if any(keyword in text for keyword in ["状态", "在线", "ready", "准备"]):
             return [self._step(1, "fleet.readiness", {"robot_codes": [robot_code]})]
         return [self._step(1, "fleet.summary", {})]
+
+    def _is_forward_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        return any(keyword in normalized for keyword in ["前进", "向前", "往前", "forward", "move forward"])
 
     def _step(self, index: int, tool_name: str, arguments: Dict[str, Any]) -> LlmTaskPlanStep:
         spec = self._tools[tool_name]
@@ -452,6 +487,17 @@ class LlmTaskService:
                 command_name="emergency_stop",
                 required_arguments=["robot_codes"],
                 safety_level="safe_command",
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.nudge_forward",
+                title="安全短距离前进",
+                description="向指定小车下发 nudge_forward，只允许低速、短时、直线前进。",
+                backend_route="MQTT fleet/command/{robot_code}",
+                command_name="nudge_forward",
+                required_arguments=["robot_code"],
+                safety_level="motion_command",
+                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(

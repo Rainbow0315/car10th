@@ -10,6 +10,7 @@ LlmToolName = Literal[
     "fleet.summary",
     "fleet.readiness",
     "fleet.safety_stop",
+    "fleet.nudge_forward",
     "fleet.plate_verify",
     "fleet.escort_return",
 ]
