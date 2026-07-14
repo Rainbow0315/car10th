@@ -21,6 +21,10 @@ LlmToolName = Literal[
     "fleet.formation",
     "fleet.plate_verify",
     "fleet.escort_return",
+    "patrol.list_tasks",
+    "patrol.start_task",
+    "patrol.stop_task",
+    "patrol.runtime",
 ]
 
 

@@ -11,6 +11,7 @@ Usage from repository root:
 from __future__ import annotations
 
 import asyncio
+import math
 import sys
 import types
 from pathlib import Path
@@ -135,7 +136,60 @@ async def run_tests() -> None:
             ],
         }
 
+    def fake_stop_ros_bridges(robot_codes):
+        return {
+            "target_robots": robot_codes,
+            "all_ok": True,
+            "command": "stop",
+            "members": [
+                {
+                    "robot_code": robot_code,
+                    "ros_bridge_url": f"http://{robot_code}.test:8001",
+                    "ok": True,
+                    "status_code": None,
+                    "elapsed_ms": 1.0,
+                    "response": {"responses": ["OK"]},
+                    "error": None,
+                }
+                for robot_code in robot_codes
+            ],
+        }
+
+    def fake_rotate_angle_on_ros_bridges(robot_codes, **kwargs):
+        angle_rad = float(kwargs["angle_rad"])
+        return {
+            "target_robots": robot_codes,
+            "all_ok": True,
+            "command": "rotate_angle",
+            "angle_rad": angle_rad,
+            "angular_z": float(kwargs["angular_z"]),
+            "tolerance_rad": float(kwargs["tolerance_rad"]),
+            "rate_hz": float(kwargs["rate_hz"]),
+            "timeout_sec": float(kwargs["timeout_sec"]),
+            "members": [
+                {
+                    "robot_code": robot_code,
+                    "ros_bridge_url": f"http://{robot_code}.test:8001",
+                    "ok": True,
+                    "status_code": 200,
+                    "elapsed_ms": 1.0,
+                    "response": {
+                        "status": "accepted",
+                        "mode": "closed_loop_angle",
+                        "result": {
+                            "actual_angle_rad": angle_rad,
+                            "average_angular_speed_rad_s": 0.6,
+                        },
+                    },
+                    "error": None,
+                }
+                for robot_code in robot_codes
+            ],
+        }
+
     llm_task_module.send_cmd_vel_to_ros_bridges = fake_send_cmd_vel_to_ros_bridges
+    llm_task_module.rotate_angle_on_ros_bridges = fake_rotate_angle_on_ros_bridges
+    llm_task_module.stop_ros_bridges = fake_stop_ros_bridges
 
     service = LlmTaskService()
     cases = [
@@ -149,6 +203,14 @@ async def run_tests() -> None:
         ("avoid hazard robot_001", "fleet.hazard_avoidance", True),
         ("formation robot_001", "fleet.formation", True),
         ("ready robot_001", "fleet.readiness", False),
+        ("list patrol tasks", "patrol.list_tasks", False),
+        ("start patrol task patrol_demo_001", "patrol.start_task", True),
+        ("stop patrol task patrol_demo_001", "patrol.stop_task", True),
+        ("patrol task patrol_demo_001 runtime", "patrol.runtime", False),
+        ("启动巡航任务 patrol_demo_001", "patrol.start_task", True),
+        ("停止巡航任务 patrol_demo_001", "patrol.stop_task", True),
+        ("查询巡航任务 patrol_demo_001 状态", "patrol.runtime", False),
+        ("开始巡航", "patrol.list_tasks", False),
         ("让 robot_001 核验 B2 消防通道的沪A12345", "fleet.plate_verify", True),
         ("fleet summary", "fleet.summary", False),
     ]
@@ -206,16 +268,80 @@ async def run_tests() -> None:
     assert fallback_two_robot.steps[0].arguments["action"] == "backward"
     assert fallback_two_robot.steps[0].arguments["duration_seconds"] == 1.0
 
+    fallback_mixed_sequence = await service.plan(
+        LlmTaskPlanRequest(
+            message="让robot1前进2s，然后原地转一圈，先左转一圈再右转一圈，然后让robot2后退2s",
+            robot_codes=["robot_001", "robot_002"],
+            allow_llm=False,
+        ),
+    )
+    assert fallback_mixed_sequence.source == "rule_fallback"
+    assert [step.arguments["robot_code"] for step in fallback_mixed_sequence.steps] == [
+        "robot_001",
+        "robot_001",
+        "robot_001",
+        "robot_002",
+    ]
+    assert [step.arguments["action"] for step in fallback_mixed_sequence.steps] == [
+        "forward",
+        "rotate_left",
+        "rotate_right",
+        "backward",
+    ]
+    assert [step.arguments["duration_seconds"] for step in fallback_mixed_sequence.steps] == [2.0, 7.0, 7.0, 2.0]
+    assert math.isclose(fallback_mixed_sequence.steps[1].arguments["angle_rad"], math.tau, rel_tol=0.0, abs_tol=0.001)
+    assert math.isclose(fallback_mixed_sequence.steps[2].arguments["angle_rad"], -math.tau, rel_tol=0.0, abs_tol=0.001)
+
+    fallback_same_operation = await service.plan(
+        LlmTaskPlanRequest(
+            message="让robot2干出同上操作",
+            robot_codes=["robot_002"],
+            allow_llm=False,
+        ),
+    )
+    assert fallback_same_operation.source == "rule_fallback"
+    assert [step.arguments["robot_code"] for step in fallback_same_operation.steps] == [
+        "robot_002",
+        "robot_002",
+        "robot_002",
+    ]
+    assert [step.arguments["action"] for step in fallback_same_operation.steps] == [
+        "forward",
+        "rotate_left",
+        "rotate_right",
+    ]
+    assert [step.arguments["duration_seconds"] for step in fallback_same_operation.steps] == [2.0, 7.0, 7.0]
+    assert math.isclose(fallback_same_operation.steps[1].arguments["angle_rad"], math.tau, rel_tol=0.0, abs_tol=0.001)
+    assert math.isclose(fallback_same_operation.steps[2].arguments["angle_rad"], -math.tau, rel_tol=0.0, abs_tol=0.001)
+
+    fallback_dual_sequence = await service.plan(
+        LlmTaskPlanRequest(
+            message="让两辆车同时前进3s，然后后退3s",
+            robot_codes=["robot_001", "robot_002"],
+            allow_llm=False,
+        ),
+    )
+    assert fallback_dual_sequence.source == "rule_fallback"
+    assert [step.arguments["robot_codes"] for step in fallback_dual_sequence.steps] == [
+        ["robot_001", "robot_002"],
+        ["robot_001", "robot_002"],
+    ]
+    assert [step.arguments["action"] for step in fallback_dual_sequence.steps] == ["forward", "backward"]
+    assert [step.arguments["duration_seconds"] for step in fallback_dual_sequence.steps] == [3.0, 3.0]
+
     tools = service.list_tools(["robot_001"]).tools
     safety_stop = next(tool for tool in tools if tool.name == "fleet.safety_stop")
     motion = next(tool for tool in tools if tool.name == "fleet.motion")
     nudge_forward = next(tool for tool in tools if tool.name == "fleet.nudge_forward")
     corridor_crawl = next(tool for tool in tools if tool.name == "fleet.corridor_crawl")
     plate_verify = next(tool for tool in tools if tool.name == "fleet.plate_verify")
-    assert safety_stop.backend_route == "POST /api/fleet/safety/stop"
-    assert safety_stop.command_name == "emergency_stop"
+    patrol_list = next(tool for tool in tools if tool.name == "patrol.list_tasks")
+    patrol_start = next(tool for tool in tools if tool.name == "patrol.start_task")
+    patrol_runtime = next(tool for tool in tools if tool.name == "patrol.runtime")
+    assert safety_stop.backend_route == "POST /api/fleet/teleop/stop"
+    assert safety_stop.command_name == "stop"
     assert safety_stop.available is True
-    assert motion.command_name == "llm_motion"
+    assert motion.command_name == "cmd_vel"
     assert motion.available is False
     assert motion.unavailable_reason == "not all target robots are ready"
     assert nudge_forward.command_name == "nudge_forward"
@@ -226,6 +352,13 @@ async def run_tests() -> None:
     assert corridor_crawl.unavailable_reason == "not all target robots are ready"
     assert plate_verify.available is False
     assert plate_verify.unavailable_reason == "not all target robots are ready"
+    assert patrol_list.backend_route == "GET /api/patrol/tasks"
+    assert patrol_list.available is True
+    assert patrol_start.backend_route == "POST /api/patrol/tasks/{task_code}/start"
+    assert patrol_start.available is False
+    assert patrol_start.unavailable_reason == "not all target robots are ready"
+    assert patrol_runtime.backend_route == "GET /api/patrol/tasks/{task_code}/runtime"
+    assert patrol_runtime.available is True
 
     status = service.runtime_status()
     assert status.llm_configured is False
@@ -280,6 +413,20 @@ async def run_tests() -> None:
     assert normalized_stop_steps[0].tool == "fleet.safety_stop"
     assert normalized_stop_steps[0].arguments["robot_codes"] == ["robot_001"]
 
+    normalized_patrol_steps = service._steps_from_llm(
+        [{"tool": "patrol.start_task", "arguments": {"task_id": "patrol_demo_001"}}],
+        request=LlmTaskPlanRequest(message="启动巡航任务 patrol_demo_001", allow_llm=True),
+    )
+    assert len(normalized_patrol_steps) == 1
+    assert normalized_patrol_steps[0].tool == "patrol.start_task"
+    assert normalized_patrol_steps[0].arguments["task_code"] == "patrol_demo_001"
+
+    missing_patrol_task = service._steps_from_llm(
+        [{"tool": "patrol.start_task", "arguments": {}}],
+        request=LlmTaskPlanRequest(message="开始巡航", allow_llm=True),
+    )
+    assert missing_patrol_task == []
+
     sequential_motion_steps = service._steps_from_llm(
         [
             {"tool": "fleet.motion", "arguments": {"robot_code": "robot_001", "action": "forward", "duration": "3s"}},
@@ -327,6 +474,84 @@ async def run_tests() -> None:
     assert all(command["command"] == "cmd_vel" for command in two_robot_result["commands"])
     assert two_robot_result["teleop"]["requested_duration"] == 2.0
     assert two_robot_result["teleop"]["effective_duration"] >= 2.0
+    executed_two_robot_step = two_robot_motion_steps[0].model_copy(
+        update={"status": "executed", "result": two_robot_result}
+    )
+    assert service._step_execution_delay_seconds(executed_two_robot_step) > two_robot_result["teleop"]["effective_duration"]
+
+    rotate_angle_steps = service._steps_from_llm(
+        [
+            {
+                "tool": "fleet.motion",
+                "arguments": {
+                    "robot_code": "robot_001",
+                    "action": "rotate_left",
+                    "angle_rad": math.tau,
+                    "duration_seconds": 7,
+                },
+            }
+        ],
+        request=LlmTaskPlanRequest(message="robot_001 左转一圈", allow_llm=True),
+    )
+    original_ensure_ready = service._ensure_ready
+    service._ensure_ready = lambda robot_codes: None  # type: ignore[method-assign]
+    try:
+        rotate_angle_result = service._execute_step(rotate_angle_steps[0])
+    finally:
+        service._ensure_ready = original_ensure_ready  # type: ignore[method-assign]
+    assert rotate_angle_result["commands"][0]["command"] == "rotate_angle"
+    assert rotate_angle_result["teleop"]["command"] == "rotate_angle"
+    assert math.isclose(rotate_angle_result["teleop"]["angle_rad"], math.tau, rel_tol=0.0, abs_tol=0.001)
+
+    patrol_calls = []
+
+    class FakePatrolService:
+        def list_tasks(self, limit=50):
+            patrol_calls.append(("list", limit))
+            return [
+                types.SimpleNamespace(
+                    task_code="patrol_demo_001",
+                    task_name="demo patrol",
+                    robot_code="robot_001",
+                    status="draft",
+                    trigger_type="app",
+                    loop_count=1,
+                    waypoints_json=[{"seq": 1, "x": 0.0, "y": 0.0}, {"seq": 2, "x": 1.0, "y": 0.0}],
+                    started_at=None,
+                    finished_at=None,
+                    error_message=None,
+                )
+            ]
+
+        def start_task(self, task_code):
+            patrol_calls.append(("start", task_code))
+
+        def stop_task(self, task_code):
+            patrol_calls.append(("stop", task_code))
+
+        def get_runtime(self, task_code):
+            patrol_calls.append(("runtime", task_code))
+            return {"task_code": task_code, "running": False, "state": "idle"}
+
+    patrol_mod = types.ModuleType("apps.web_api.services.patrol_service")
+    patrol_mod.patrol_service = FakePatrolService()
+    sys.modules["apps.web_api.services.patrol_service"] = patrol_mod
+
+    patrol_list_result = service._execute_step(service._step(1, "patrol.list_tasks", {"limit": 5}))
+    patrol_start_result = service._execute_step(service._step(1, "patrol.start_task", {"task_code": "patrol_demo_001"}))
+    patrol_stop_result = service._execute_step(service._step(1, "patrol.stop_task", {"task_code": "patrol_demo_001"}))
+    patrol_runtime_result = service._execute_step(service._step(1, "patrol.runtime", {"task_code": "patrol_demo_001"}))
+    assert patrol_list_result["api"] == "GET /api/patrol/tasks"
+    assert patrol_list_result["tasks"][0]["task_code"] == "patrol_demo_001"
+    assert patrol_start_result["api"] == "POST /api/patrol/tasks/patrol_demo_001/start"
+    assert patrol_stop_result["api"] == "POST /api/patrol/tasks/patrol_demo_001/stop"
+    assert patrol_runtime_result["api"] == "GET /api/patrol/tasks/patrol_demo_001/runtime"
+    assert patrol_calls == [
+        ("list", 5),
+        ("start", "patrol_demo_001"),
+        ("stop", "patrol_demo_001"),
+        ("runtime", "patrol_demo_001"),
+    ]
 
     from apps.web_api.routers import llm as llm_router
 
@@ -337,6 +562,7 @@ async def run_tests() -> None:
     assert any(tool.name == "fleet.motion" for tool in route_tools.tools)
     assert any(tool.name == "fleet.nudge_forward" for tool in route_tools.tools)
     assert any(tool.name == "fleet.corridor_crawl" for tool in route_tools.tools)
+    assert any(tool.name == "patrol.start_task" for tool in route_tools.tools)
 
     route_plan = await llm_router.plan_llm_task(
         LlmTaskPlanRequest(message="stop robot_001", allow_llm=False),
@@ -357,7 +583,7 @@ async def run_tests() -> None:
         LlmTaskExecuteRequest(confirmed=True),
     )
     assert route_result.steps[0].status == "executed"
-    assert route_result.steps[0].result["commands"][0]["status"] == "published"
+    assert route_result.steps[0].result["commands"][0]["status"] == "accepted"
 
     redacted = service._safe_error(RuntimeError("bad secret-key-for-test"))
     assert "secret-key-for-test" not in redacted

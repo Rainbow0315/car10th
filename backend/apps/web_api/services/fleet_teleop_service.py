@@ -47,7 +47,7 @@ def send_cmd_vel_to_ros_bridges(
         robot_codes,
         path="/api/teleop/cmd-vel",
         payload=payload,
-        timeout_sec=max(5.0, effective_duration + 3.0),
+        timeout_sec=max(8.0, effective_duration + 3.0),
     )
     return {
         "target_robots": robot_codes,
@@ -58,6 +58,45 @@ def send_cmd_vel_to_ros_bridges(
         "duration_compensation": round(effective_duration - duration, 3),
         "requested_rate_hz": rate_hz,
         "effective_rate_hz": effective_rate_hz,
+        "members": members,
+    }
+
+
+def rotate_angle_on_ros_bridges(
+    robot_codes: list[str],
+    *,
+    angle_rad: float,
+    angular_z: float,
+    tolerance_rad: float,
+    rate_hz: float,
+    timeout_sec: float,
+    wait_for_subscriber_timeout: float,
+    wait_for_odom_timeout: float,
+) -> dict[str, Any]:
+    payload = {
+        "angle_rad": angle_rad,
+        "angular_z": abs(angular_z),
+        "tolerance_rad": tolerance_rad,
+        "rate_hz": rate_hz,
+        "timeout_sec": timeout_sec,
+        "wait_for_subscriber_timeout": wait_for_subscriber_timeout,
+        "wait_for_odom_timeout": wait_for_odom_timeout,
+    }
+    members = call_ros_bridges_concurrently(
+        robot_codes,
+        path="/api/teleop/rotate-angle",
+        payload=payload,
+        timeout_sec=max(8.0, timeout_sec + 3.0),
+    )
+    return {
+        "target_robots": robot_codes,
+        "all_ok": all(item["ok"] for item in members),
+        "command": "rotate_angle",
+        "angle_rad": angle_rad,
+        "angular_z": abs(angular_z),
+        "tolerance_rad": tolerance_rad,
+        "rate_hz": rate_hz,
+        "timeout_sec": timeout_sec,
         "members": members,
     }
 
@@ -111,7 +150,7 @@ def call_ros_bridge(
     try:
         base_url = robot_ros_bridge_url(robot_code).rstrip("/")
         url = f"{base_url}{path}"
-        with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=2.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=2.0), trust_env=False) as client:
             response = client.post(url, json=payload)
     except Exception as exc:
         return {

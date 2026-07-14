@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import uuid
@@ -14,7 +15,11 @@ import httpx
 from fastapi import HTTPException, status
 
 from apps.web_api.services.fleet_service import fleet_service
-from apps.web_api.services.fleet_teleop_service import send_cmd_vel_to_ros_bridges
+from apps.web_api.services.fleet_teleop_service import (
+    rotate_angle_on_ros_bridges,
+    send_cmd_vel_to_ros_bridges,
+    stop_ros_bridges,
+)
 from common.config.settings import settings
 from common.mqtt import fleet_command_topic, mqtt_manager
 from common.schemas.fleet import FleetReadinessResponse
@@ -28,6 +33,9 @@ from common.schemas.llm import (
     LlmToolListResponse,
     LlmToolSpec,
 )
+
+FULL_TURN_DURATION_SEC = 7.0
+MOTION_STEP_SETTLE_SEC = 0.15
 
 
 class LlmTaskService:
@@ -67,6 +75,16 @@ class LlmTaskService:
                 steps = []
         else:
             steps = self._plan_with_rules(request)
+
+        same_operation_steps = self._same_operation_steps_from_text(request.message, request)
+        if same_operation_steps:
+            steps = same_operation_steps
+            source = "rule_fallback"
+        else:
+            direct_motion_steps = self._direct_motion_steps_from_text(request.message, request)
+            if direct_motion_steps:
+                steps = direct_motion_steps
+                source = "rule_fallback"
 
         if not steps:
             steps = self._plan_with_rules(request)
@@ -126,10 +144,9 @@ class LlmTaskService:
                 result = self._execute_step(step)
                 executed_step = step.model_copy(update={"status": "executed", "result": result, "error": None})
                 updated_steps.append(executed_step)
-                if self._has_later_planned_step(plan.steps, index):
-                    delay_seconds = self._step_execution_delay_seconds(executed_step)
-                    if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                delay_seconds = self._step_execution_delay_seconds(executed_step)
+                if delay_seconds > 0:
+                    time.sleep(delay_seconds)
             except Exception as exc:
                 updated_steps.append(step.model_copy(update={"status": "failed", "error": str(exc)}))
         return plan.model_copy(update={"steps": updated_steps})
@@ -149,20 +166,17 @@ class LlmTaskService:
         if step.tool == "fleet.readiness":
             robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
             return fleet_service.check_readiness(robot_codes)
+        if step.tool == "patrol.list_tasks":
+            return self._execute_patrol_list(step.arguments)
+        if step.tool == "patrol.start_task":
+            return self._execute_patrol_start(step.arguments)
+        if step.tool == "patrol.stop_task":
+            return self._execute_patrol_stop(step.arguments)
+        if step.tool == "patrol.runtime":
+            return self._execute_patrol_runtime(step.arguments)
         if step.tool == "fleet.safety_stop":
             robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
-            commands = [
-                self._publish_command(
-                    robot_code,
-                    "emergency_stop",
-                    {
-                        "reason": step.arguments.get("reason") or "LLM task safety stop",
-                        "scenario": "llm_task_safety_control",
-                    },
-                )
-                for robot_code in robot_codes
-            ]
-            return {"commands": commands}
+            return self._execute_ros_stop(robot_codes)
         if step.tool == "fleet.motion":
             robot_codes = self._motion_robot_codes(step.arguments)
             self._ensure_ready(robot_codes)
@@ -175,26 +189,19 @@ class LlmTaskService:
                 30.0,
             )
             motion["duration"] = duration
-            if len(robot_codes) > 1:
-                return self._execute_multi_robot_motion(
-                    robot_codes=robot_codes,
-                    action=action,
-                    motion=motion,
+            angle_rad = self._rotate_angle_from_arguments(action, step.arguments)
+            if angle_rad is not None:
+                return self._execute_ros_rotate_angle(
+            robot_codes=robot_codes,
+            action=action,
+            angle_rad=angle_rad,
+            angular_z=min(abs(motion["angular_z"]), 0.65),
                 )
-            commands = [
-                self._publish_command(
-                    robot_code,
-                    "llm_motion",
-                    {
-                        "action": action,
-                        "reason": step.arguments.get("reason") or f"LLM requested {action} motion",
-                        "source": "llm_task_planner",
-                        "motion": dict(motion),
-                    },
-                )
-                for robot_code in robot_codes
-            ]
-            return {"command": commands[0], "commands": commands}
+            return self._execute_ros_motion(
+                robot_codes=robot_codes,
+                action=action,
+                motion=motion,
+            )
         if step.tool == "fleet.nudge_forward":
             robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -204,22 +211,17 @@ class LlmTaskService:
                 0.2,
                 30.0,
             )
-            command = self._publish_command(
-                robot_code,
-                "nudge_forward",
-                {
-                    "reason": step.arguments.get("reason") or "LLM requested a brief forward movement",
-                    "source": "llm_task_planner",
-                    "motion": {
-                        "linear_x": 0.18,
-                        "linear_y": 0.0,
-                        "angular_z": 0.0,
-                        "duration": duration,
-                        "rate_hz": 10.0,
-                    },
+            return self._execute_ros_motion(
+                robot_codes=[robot_code],
+                action="forward",
+                motion={
+                    "linear_x": 0.18,
+                    "linear_y": 0.0,
+                    "angular_z": 0.0,
+                    "duration": duration,
+                    "rate_hz": 10.0,
                 },
             )
-            return {"command": command}
         if step.tool == "fleet.rescue_approach":
             robot_code = str(step.arguments.get("responder_robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -475,6 +477,24 @@ class LlmTaskService:
     def _step_execution_delay_seconds(self, step: LlmTaskPlanStep) -> float:
         if step.status != "executed" or step.tool != "fleet.motion":
             return 0.0
+        if isinstance(step.result, dict):
+            teleop = step.result.get("teleop")
+            if isinstance(teleop, dict) and teleop.get("command") == "cmd_vel":
+                any_accepted = any(
+                    isinstance(member, dict) and bool(member.get("ok"))
+                    for member in teleop.get("members", [])
+                )
+                if not any_accepted:
+                    return 0.0
+                duration = self._float_in_range(
+                    teleop.get("effective_duration") or teleop.get("requested_duration"),
+                    0.0,
+                    0.0,
+                    30.0,
+                )
+                if duration <= 0.0:
+                    return 0.0
+                return duration + MOTION_STEP_SETTLE_SEC
         return self._float_in_range(
             step.arguments.get("duration_seconds") or step.arguments.get("duration"),
             0.0,
@@ -520,12 +540,20 @@ class LlmTaskService:
                 "You must choose the best available tool yourself from the user's natural language.",
                 "For direct app-like robot motion requests, use fleet.motion.",
                 "fleet.motion action must be exactly one of: forward, backward, left, right, rotate_left, rotate_right.",
+                "Treat robot1/robot2 as aliases for robot_001/robot_002.",
                 "For sequential instructions such as 'first ... then ...', return one fleet.motion step per ordered action.",
                 "For simultaneous same-action instructions involving multiple robots, return one fleet.motion step with robot_codes containing all target robots.",
+                "For full-turn requests such as '一圈', '360 degrees', or 'full circle', use duration_seconds 7 for rotate_left/rotate_right.",
                 "If the user asks a robot to move/go/run without a direction, choose fleet.motion with action forward.",
                 "Preserve the user's requested duration as numeric duration_seconds. If the user says 1s use 1, if 3秒 use 3.",
                 "If the robot is omitted, use the requested robot context or the ready robot in robot_context.",
                 "Use fleet.safety_stop only when the user explicitly asks to stop, brake, halt, emergency-stop, or says the robot is unsafe.",
+                "For patrol/cruise/xunhang/巡航 requests, use patrol.* tools instead of fleet.motion.",
+                "Use patrol.list_tasks when the user asks to list patrol tasks or asks to cruise/patrol without a task_code.",
+                "If the Chinese user says '开始巡航' or '启动巡航' but gives no task_code, use patrol.list_tasks.",
+                "Use patrol.start_task only when the user explicitly asks to start/launch/resume patrol and provides a task_code.",
+                "Use patrol.stop_task only when the user explicitly asks to stop/cancel patrol and provides a task_code.",
+                "Use patrol.runtime when the user asks for patrol progress/status/runtime and provides a task_code.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
@@ -598,6 +626,78 @@ class LlmTaskService:
                                 "duration_seconds": 3,
                             },
                         },
+                    ],
+                },
+                {
+                    "user": "list patrol tasks",
+                    "steps": [
+                        {
+                            "tool": "patrol.list_tasks",
+                            "arguments": {"limit": 20},
+                        }
+                    ],
+                },
+                {
+                    "user": "开始巡航",
+                    "steps": [
+                        {
+                            "tool": "patrol.list_tasks",
+                            "arguments": {"limit": 20},
+                        }
+                    ],
+                },
+                {
+                    "user": "启动巡航任务 patrol_demo_001",
+                    "steps": [
+                        {
+                            "tool": "patrol.start_task",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "停止巡航任务 patrol_demo_001",
+                    "steps": [
+                        {
+                            "tool": "patrol.stop_task",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "查询巡航任务 patrol_demo_001 状态",
+                    "steps": [
+                        {
+                            "tool": "patrol.runtime",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "start patrol task patrol_demo_001",
+                    "steps": [
+                        {
+                            "tool": "patrol.start_task",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "stop patrol task patrol_demo_001",
+                    "steps": [
+                        {
+                            "tool": "patrol.stop_task",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "check patrol task patrol_demo_001 runtime",
+                    "steps": [
+                        {
+                            "tool": "patrol.runtime",
+                            "arguments": {"task_code": "patrol_demo_001"},
+                        }
                     ],
                 },
                 {
@@ -695,6 +795,7 @@ class LlmTaskService:
                 robot_codes = self._request_robot_codes(request)
             if not robot_codes and fallback_robot:
                 robot_codes = [fallback_robot]
+            robot_codes = self._normalize_robot_codes(robot_codes)
             if robot_codes:
                 normalized["robot_codes"] = robot_codes
                 normalized["robot_code"] = robot_codes[0]
@@ -709,6 +810,15 @@ class LlmTaskService:
 
             duration = normalized.get("duration_seconds", normalized.get("duration"))
             parsed_duration = self._coerce_duration_seconds(duration)
+            if (
+                action in {"rotate_left", "rotate_right"}
+                and request is not None
+                and self._is_full_turn_request(request.message)
+                and (parsed_duration is None or parsed_duration == 1.0)
+            ):
+                parsed_duration = FULL_TURN_DURATION_SEC
+            if action in {"rotate_left", "rotate_right"} and request is not None and self._is_full_turn_request(request.message):
+                normalized["angle_rad"] = self._angle_for_rotate_action(action, full_turns=1.0)
             if parsed_duration is not None:
                 normalized["duration_seconds"] = parsed_duration
 
@@ -718,8 +828,29 @@ class LlmTaskService:
             )
             if not robot_codes and fallback_robot:
                 robot_codes = [fallback_robot]
+            robot_codes = self._normalize_robot_codes(robot_codes)
             if robot_codes:
                 normalized["robot_codes"] = robot_codes
+
+        elif spec.name in {"patrol.start_task", "patrol.stop_task", "patrol.runtime"}:
+            task_code = (
+                normalized.get("task_code")
+                or normalized.get("patrol_task_code")
+                or normalized.get("task_id")
+                or normalized.get("id")
+            )
+            if (task_code is None or not str(task_code).strip()) and request is not None:
+                task_code = self._patrol_task_code_from_text(request.message)
+            if task_code is not None and str(task_code).strip():
+                normalized["task_code"] = str(task_code).strip()
+
+        elif spec.name == "patrol.list_tasks":
+            raw_limit = normalized.get("limit")
+            try:
+                limit = int(raw_limit) if raw_limit is not None else 20
+            except (TypeError, ValueError):
+                limit = 20
+            normalized["limit"] = max(1, min(limit, 50))
 
         return normalized
 
@@ -732,6 +863,22 @@ class LlmTaskService:
 
         if any(keyword in text for keyword in ["list robots", "robots", "小车列表", "有哪些小车", "列出小车"]):
             return [self._step(1, "fleet.list_robots", {})]
+        if self._is_patrol_request(text):
+            task_code = self._patrol_task_code_from_text(text)
+            normalized = text.strip().lower()
+            if any(keyword in normalized for keyword in ["stop patrol", "cancel patrol", "停止巡航", "取消巡航", "结束巡航"]):
+                if task_code:
+                    return [self._step(1, "patrol.stop_task", {"task_code": task_code})]
+                return [self._step(1, "patrol.list_tasks", {"limit": 20})]
+            if any(keyword in normalized for keyword in ["status", "runtime", "progress", "进度", "状态", "运行状态"]):
+                if task_code:
+                    return [self._step(1, "patrol.runtime", {"task_code": task_code})]
+                return [self._step(1, "patrol.list_tasks", {"limit": 20})]
+            if any(keyword in normalized for keyword in ["start patrol", "launch patrol", "resume patrol", "开始巡航", "启动巡航", "执行巡航"]):
+                if task_code:
+                    return [self._step(1, "patrol.start_task", {"task_code": task_code})]
+                return [self._step(1, "patrol.list_tasks", {"limit": 20})]
+            return [self._step(1, "patrol.list_tasks", {"limit": 20})]
         if any(keyword in text for keyword in ["rescue approach", "approach rescue", "靠近救援", "接近故障车"]):
             return [
                 self._step(
@@ -761,6 +908,10 @@ class LlmTaskService:
         direct_motion_steps = self._direct_motion_steps_from_text(text, request)
         if direct_motion_steps:
             return direct_motion_steps
+
+        same_operation_steps = self._same_operation_steps_from_text(text, request)
+        if same_operation_steps:
+            return same_operation_steps
 
         if any(keyword in text for keyword in ["急停", "停止", "stop", "刹车"]):
             return [
@@ -825,25 +976,84 @@ class LlmTaskService:
         text: str,
         request: LlmTaskPlanRequest,
     ) -> list[LlmTaskPlanStep]:
-        robot_codes = self._request_robot_codes(request)
+        request_codes = self._normalize_robot_codes(code.strip() for code in request.robot_codes if code.strip())
+        all_context_codes = self._request_robot_codes(request)
+        current_robot_codes = self._robot_codes_from_text(text)[:1]
+        if not current_robot_codes:
+            current_robot_codes = request_codes[:1] or all_context_codes[:1] or ["robot_001"]
         clauses = self._motion_clauses(text)
         steps = []
         for clause in clauses:
             action = self._motion_action_from_text(clause.strip().lower())
             if action is None:
                 continue
+            clause_codes = self._robot_codes_for_motion_clause(clause, request, all_context_codes)
+            if clause_codes:
+                current_robot_codes = clause_codes
+            target_robot_codes = current_robot_codes
             arguments: Dict[str, Any] = {
                 "action": action,
                 "duration_seconds": self._duration_seconds(clause),
                 "reason": f"LLM parsed from: {text[:80]}",
             }
-            if len(robot_codes) > 1:
-                arguments["robot_codes"] = robot_codes
-                arguments["robot_code"] = robot_codes[0]
+            if action in {"rotate_left", "rotate_right"} and self._is_full_turn_request(clause):
+                arguments["angle_rad"] = self._angle_for_rotate_action(action, full_turns=1.0)
+            if len(target_robot_codes) > 1:
+                arguments["robot_codes"] = target_robot_codes
+                arguments["robot_code"] = target_robot_codes[0]
             else:
-                arguments["robot_code"] = robot_codes[0]
+                arguments["robot_code"] = target_robot_codes[0]
             steps.append(self._step(len(steps) + 1, "fleet.motion", arguments))
         return steps
+
+    def _robot_codes_for_motion_clause(
+        self,
+        clause: str,
+        request: LlmTaskPlanRequest,
+        all_context_codes: list[str],
+    ) -> list[str]:
+        if self._mentions_all_robots(clause):
+            return all_context_codes
+        clause_codes = self._robot_codes_from_text(clause)
+        if clause_codes:
+            return clause_codes
+        return []
+
+    def _same_operation_steps_from_text(
+        self,
+        text: str,
+        request: LlmTaskPlanRequest,
+    ) -> list[LlmTaskPlanStep]:
+        normalized = text.strip().lower()
+        if not any(keyword in normalized for keyword in ["同上", "same operation", "same action", "repeat that"]):
+            return []
+        target_codes = self._robot_codes_from_text(text)
+        if not target_codes:
+            target_codes = self._normalize_robot_codes(code.strip() for code in request.robot_codes if code.strip())
+        target_code = (target_codes or ["robot_001"])[0]
+        actions = [
+            ("forward", 2.0),
+            ("rotate_left", FULL_TURN_DURATION_SEC),
+            ("rotate_right", FULL_TURN_DURATION_SEC),
+        ]
+        return [
+            self._step(
+                index,
+                "fleet.motion",
+                {
+                    "robot_code": target_code,
+                    "action": action,
+                    "duration_seconds": duration,
+                    **(
+                        {"angle_rad": self._angle_for_rotate_action(action, full_turns=1.0)}
+                        if action in {"rotate_left", "rotate_right"}
+                        else {}
+                    ),
+                    "reason": f"LLM parsed same-operation request from: {text[:80]}",
+                },
+            )
+            for index, (action, duration) in enumerate(actions, start=1)
+        ]
 
     def _motion_clauses(self, text: str) -> list[str]:
         normalized = re.sub(r"\bfirst\b", "", text, flags=re.IGNORECASE)
@@ -895,7 +1105,22 @@ class LlmTaskService:
             raise ValueError(f"Unsupported LLM motion action: {action}")
         return dict(motion)
 
-    def _execute_multi_robot_motion(
+    def _angle_for_rotate_action(self, action: str, *, full_turns: float = 1.0) -> float:
+        direction = -1.0 if action == "rotate_right" else 1.0
+        return round(direction * math.tau * max(0.0, float(full_turns)), 6)
+
+    def _rotate_angle_from_arguments(self, action: str, arguments: Dict[str, Any]) -> Optional[float]:
+        if action not in {"rotate_left", "rotate_right"}:
+            return None
+        raw_angle = arguments.get("angle_rad")
+        if raw_angle is None:
+            return None
+        angle = self._float_in_range(raw_angle, 0.0, -math.tau * 2.0, math.tau * 2.0)
+        if abs(angle) <= 0.001:
+            return None
+        return angle
+
+    def _execute_ros_motion(
         self,
         *,
         robot_codes: list[str],
@@ -944,6 +1169,147 @@ class LlmTaskService:
             "teleop": result,
         }
 
+    def _execute_ros_rotate_angle(
+        self,
+        *,
+        robot_codes: list[str],
+        action: str,
+        angle_rad: float,
+        angular_z: float,
+    ) -> Dict[str, Any]:
+        timeout_sec = 60.0 if abs(angle_rad) >= math.tau * 0.9 else max(
+            12.0,
+            min(60.0, abs(angle_rad) / max(0.05, angular_z) + 12.0),
+        )
+        result = rotate_angle_on_ros_bridges(
+            robot_codes,
+            angle_rad=angle_rad,
+            angular_z=angular_z,
+            tolerance_rad=0.08,
+            rate_hz=30.0,
+            timeout_sec=timeout_sec,
+            wait_for_subscriber_timeout=1.0,
+            wait_for_odom_timeout=2.0,
+        )
+        commands = [
+            {
+                "robot_code": member["robot_code"],
+                "command": "rotate_angle",
+                "action": action,
+                "status": "accepted" if member["ok"] else "failed",
+                "payload": {
+                    "angle_rad": angle_rad,
+                    "angular_z": angular_z,
+                    "tolerance_rad": result["tolerance_rad"],
+                    "rate_hz": result["rate_hz"],
+                    "timeout_sec": result["timeout_sec"],
+                },
+                "ros_bridge_url": member["ros_bridge_url"],
+                "elapsed_ms": member["elapsed_ms"],
+                "response": member["response"],
+                "error": member["error"],
+            }
+            for member in result["members"]
+        ]
+        return {
+            "command": commands[0],
+            "commands": commands,
+            "teleop": result,
+        }
+
+    def _execute_ros_stop(self, robot_codes: list[str]) -> Dict[str, Any]:
+        result = stop_ros_bridges(robot_codes)
+        commands = [
+            {
+                "robot_code": member["robot_code"],
+                "command": "stop",
+                "status": "accepted" if member["ok"] else "failed",
+                "payload": {"reason": "LLM task safety stop"},
+                "ros_bridge_url": member["ros_bridge_url"],
+                "elapsed_ms": member["elapsed_ms"],
+                "response": member["response"],
+                "error": member["error"],
+            }
+            for member in result["members"]
+        ]
+        return {
+            "command": commands[0],
+            "commands": commands,
+            "teleop": result,
+        }
+
+    def _execute_patrol_list(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        from apps.web_api.services.patrol_service import patrol_service
+
+        raw_limit = arguments.get("limit")
+        try:
+            limit = int(raw_limit) if raw_limit is not None else 20
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 50))
+        tasks = [self._patrol_task_snapshot(task) for task in patrol_service.list_tasks(limit=limit)]
+        return {
+            "api": "GET /api/patrol/tasks",
+            "limit": limit,
+            "tasks": tasks,
+        }
+
+    def _execute_patrol_start(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        from apps.web_api.services.patrol_service import patrol_service
+
+        task_code = str(arguments.get("task_code") or "").strip()
+        if not task_code:
+            raise ValueError("patrol.start_task requires task_code")
+        patrol_service.start_task(task_code)
+        return {
+            "api": f"POST /api/patrol/tasks/{task_code}/start",
+            "task_code": task_code,
+            "status": "accepted",
+            "detail": "patrol started",
+        }
+
+    def _execute_patrol_stop(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        from apps.web_api.services.patrol_service import patrol_service
+
+        task_code = str(arguments.get("task_code") or "").strip()
+        if not task_code:
+            raise ValueError("patrol.stop_task requires task_code")
+        patrol_service.stop_task(task_code)
+        return {
+            "api": f"POST /api/patrol/tasks/{task_code}/stop",
+            "task_code": task_code,
+            "status": "accepted",
+            "detail": "patrol stop requested",
+        }
+
+    def _execute_patrol_runtime(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        from apps.web_api.services.patrol_service import patrol_service
+
+        task_code = str(arguments.get("task_code") or "").strip()
+        if not task_code:
+            raise ValueError("patrol.runtime requires task_code")
+        return {
+            "api": f"GET /api/patrol/tasks/{task_code}/runtime",
+            "task_code": task_code,
+            "runtime": patrol_service.get_runtime(task_code),
+        }
+
+    def _patrol_task_snapshot(self, task: Any) -> Dict[str, Any]:
+        status_value = getattr(getattr(task, "status", None), "value", None) or getattr(task, "status", None)
+        trigger_value = getattr(getattr(task, "trigger_type", None), "value", None) or getattr(task, "trigger_type", None)
+        return {
+            "task_code": str(getattr(task, "task_code", "")),
+            "task_name": str(getattr(task, "task_name", "")),
+            "robot_code": str(getattr(task, "robot_code", "")),
+            "status": str(status_value or ""),
+            "trigger_type": str(trigger_value or ""),
+            "loop_count": int(getattr(task, "loop_count", 1) or 1),
+            "waypoints": list(getattr(task, "waypoints_json", None) or []),
+            "started_at": getattr(task, "started_at", None),
+            "finished_at": getattr(task, "finished_at", None),
+            "error_message": getattr(task, "error_message", None),
+        }
+
     def _step(self, index: int, tool_name: str, arguments: Dict[str, Any]) -> LlmTaskPlanStep:
         spec = self._tools[tool_name]
         return LlmTaskPlanStep(
@@ -974,20 +1340,17 @@ class LlmTaskService:
         if self._mentions_all_robots(request.message):
             codes.extend(self._all_online_robot_codes())
         codes.extend(self._robot_codes_from_text(request.message))
-        codes.extend(code.strip() for code in request.robot_codes if code.strip())
-        return self._dedupe_strings(codes) or ["robot_001"]
+        codes.extend(self._normalize_robot_code(code) for code in request.robot_codes if str(code).strip())
+        return self._normalize_robot_codes(codes) or ["robot_001"]
 
     def _motion_robot_codes(self, arguments: Dict[str, Any]) -> list[str]:
         codes = self._string_list(arguments.get("robot_codes") or arguments.get("robots") or arguments.get("robot_ids"))
         if not codes:
             codes = self._string_list(arguments.get("robot_code") or arguments.get("robot") or arguments.get("robot_id"))
-        return self._dedupe_strings(codes) or ["robot_001"]
+        return self._normalize_robot_codes(codes) or ["robot_001"]
 
     def _robot_codes_from_text(self, text: str) -> list[str]:
-        return self._dedupe_strings(
-            match.group(0).replace("-", "_").lower()
-            for match in re.finditer(r"robot[_-]\d+", text, flags=re.IGNORECASE)
-        )
+        return self._normalize_robot_codes(match.group(0) for match in re.finditer(r"robot[_-]?\d+", text, flags=re.IGNORECASE))
 
     def _mentions_all_robots(self, text: str) -> bool:
         normalized = text.strip().lower()
@@ -1026,6 +1389,16 @@ class LlmTaskService:
             seen.add(item)
             result.append(item)
         return result
+
+    def _normalize_robot_code(self, value: Any) -> str:
+        item = str(value).strip().lower().replace("-", "_")
+        match = re.fullmatch(r"robot_?(\d+)", item, flags=re.IGNORECASE)
+        if match:
+            return f"robot_{int(match.group(1)):03d}"
+        return item
+
+    def _normalize_robot_codes(self, values: Any) -> list[str]:
+        return self._dedupe_strings(self._normalize_robot_code(value) for value in values)
 
     def _ensure_ready(self, robot_codes: list[str]) -> None:
         readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes))
@@ -1139,8 +1512,8 @@ class LlmTaskService:
                 name="fleet.safety_stop",
                 title="安全停止小车",
                 description="向指定小车下发 emergency_stop。",
-                backend_route="POST /api/fleet/safety/stop",
-                command_name="emergency_stop",
+                backend_route="POST /api/fleet/teleop/stop",
+                command_name="stop",
                 required_arguments=["robot_codes"],
                 safety_level="safe_command",
                 requires_confirmation=True,
@@ -1149,8 +1522,8 @@ class LlmTaskService:
                 name="fleet.motion",
                 title="单车短时运动",
                 description="模仿 App 单车控制按钮，只允许 forward/backward/left/right/rotate_left/rotate_right 六种动作；可选 duration_seconds，按用户要求的秒数下发。",
-                backend_route="MQTT fleet/command/{robot_code}",
-                command_name="llm_motion",
+                backend_route="POST /api/fleet/teleop/cmd-vel",
+                command_name="cmd_vel",
                 required_arguments=["action"],
                 safety_level="motion_command",
                 readiness_required=True,
@@ -1255,6 +1628,44 @@ class LlmTaskService:
                 readiness_required=True,
                 requires_confirmation=True,
             ),
+            LlmToolSpec(
+                name="patrol.list_tasks",
+                title="列出巡航任务",
+                description="读取当前已保存的巡航任务列表，用于在用户未给出 task_code 时先找到可启动或可停止的任务；不会控制小车。",
+                backend_route="GET /api/patrol/tasks",
+                safety_level="read_only",
+                requires_confirmation=False,
+            ),
+            LlmToolSpec(
+                name="patrol.start_task",
+                title="启动巡航任务",
+                description="按 task_code 启动一个已有巡航任务，会调用巡航任务模块按航点导航；必须由用户明确给出任务编号。",
+                backend_route="POST /api/patrol/tasks/{task_code}/start",
+                command_name="patrol_start",
+                required_arguments=["task_code"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="patrol.stop_task",
+                title="停止巡航任务",
+                description="按 task_code 停止一个正在运行的巡航任务。",
+                backend_route="POST /api/patrol/tasks/{task_code}/stop",
+                command_name="patrol_stop",
+                required_arguments=["task_code"],
+                safety_level="safe_command",
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="patrol.runtime",
+                title="查询巡航运行状态",
+                description="按 task_code 查询巡航任务当前运行状态、当前航点和最近位置；不会控制小车。",
+                backend_route="GET /api/patrol/tasks/{task_code}/runtime",
+                required_arguments=["task_code"],
+                safety_level="read_only",
+                requires_confirmation=False,
+            ),
         ]
         return {tool.name: tool for tool in tools}
 
@@ -1266,8 +1677,8 @@ class LlmTaskService:
         return cleaned
 
     def _first_robot_code(self, text: str) -> Optional[str]:
-        match = re.search(r"robot[_-]\d+", text, flags=re.IGNORECASE)
-        return match.group(0) if match else None
+        match = re.search(r"robot[_-]?\d+", text, flags=re.IGNORECASE)
+        return self._normalize_robot_code(match.group(0)) if match else None
 
     def _plate_number(self, text: str) -> Optional[str]:
         match = re.search(r"[\u4e00-\u9fa5][A-Z][A-Z0-9]{5,6}", text.upper())
@@ -1280,11 +1691,44 @@ class LlmTaskService:
         match = re.search(r"[A-Z]\d[-_A-Z0-9]*", text.upper())
         return match.group(0) if match else None
 
+    def _is_patrol_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        return any(
+            keyword in normalized
+            for keyword in [
+                "patrol",
+                "cruise",
+                "xunhang",
+                "巡航",
+                "巡检",
+            ]
+        )
+
+    def _patrol_task_code_from_text(self, text: str) -> Optional[str]:
+        patterns = [
+            r"(?:task_code|task id|task|patrol task|任务编号|任务|巡航任务)\s*[:：#]?\s*([A-Za-z0-9][A-Za-z0-9_-]{2,})",
+            r"\b([a-f0-9]{16,32})\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            candidate = match.group(1).strip()
+            if candidate.lower().startswith("robot_"):
+                continue
+            if candidate.lower() in {"patrol", "task", "start", "stop", "status", "runtime"}:
+                continue
+            return candidate
+        return None
+
     def _duration_seconds(self, text: str) -> float:
         normalized = text.strip().lower()
         match = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds|秒)", normalized)
         if match:
             return self._float_in_range(match.group(1), 1.0, 0.2, 30.0)
+
+        if self._is_full_turn_request(normalized):
+            return FULL_TURN_DURATION_SEC
 
         word_seconds = {
             "one": 1.0,
@@ -1307,6 +1751,13 @@ class LlmTaskService:
                 return seconds
         return 1.0
 
+    def _is_full_turn_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        return any(
+            keyword in normalized
+            for keyword in ["一圈", "1圈", "转圈", "full circle", "one circle", "360", "360度", "360 degrees"]
+        )
+
     def _fallback_robot_code_for_llm(self, request: Optional[LlmTaskPlanRequest]) -> Optional[str]:
         if request is None:
             return None
@@ -1315,7 +1766,7 @@ class LlmTaskService:
             return explicit
         requested = [code.strip() for code in request.robot_codes if code.strip()]
         if requested:
-            return requested[0]
+            return self._normalize_robot_code(requested[0])
         return self._best_ready_robot_code([])
 
     def _normalize_motion_action(self, value: Any) -> Optional[str]:
