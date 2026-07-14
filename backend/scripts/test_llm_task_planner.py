@@ -419,7 +419,7 @@ async def run_tests() -> None:
     )
     assert len(normalized_patrol_steps) == 1
     assert normalized_patrol_steps[0].tool == "patrol.start_task"
-    assert normalized_patrol_steps[0].arguments["task_code"] == "patrol_demo_001"
+    assert normalized_patrol_steps[0].arguments["task_ref"] == "patrol_demo_001"
 
     missing_patrol_task = service._steps_from_llm(
         [{"tool": "patrol.start_task", "arguments": {}}],
@@ -520,7 +520,19 @@ async def run_tests() -> None:
                     started_at=None,
                     finished_at=None,
                     error_message=None,
-                )
+                ),
+                types.SimpleNamespace(
+                    task_code="patrol_default_001",
+                    task_name="默认巡航任务",
+                    robot_code="robot_001",
+                    status="draft",
+                    trigger_type="app",
+                    loop_count=1,
+                    waypoints_json=[{"seq": 1, "x": 0.0, "y": 0.0}, {"seq": 2, "x": 0.0, "y": 1.0}],
+                    started_at=None,
+                    finished_at=None,
+                    error_message=None,
+                ),
             ]
 
         def start_task(self, task_code):
@@ -538,18 +550,27 @@ async def run_tests() -> None:
     sys.modules["apps.web_api.services.patrol_service"] = patrol_mod
 
     patrol_list_result = service._execute_step(service._step(1, "patrol.list_tasks", {"limit": 5}))
-    patrol_start_result = service._execute_step(service._step(1, "patrol.start_task", {"task_code": "patrol_demo_001"}))
+    patrol_start_result = service._execute_step(service._step(1, "patrol.start_task", {"task_ref": "demo patrol"}))
+    patrol_default_start_result = service._execute_step(service._step(1, "patrol.start_task", {"task_ref": "默认"}))
     patrol_stop_result = service._execute_step(service._step(1, "patrol.stop_task", {"task_code": "patrol_demo_001"}))
     patrol_runtime_result = service._execute_step(service._step(1, "patrol.runtime", {"task_code": "patrol_demo_001"}))
     assert patrol_list_result["api"] == "GET /api/patrol/tasks"
     assert patrol_list_result["tasks"][0]["task_code"] == "patrol_demo_001"
     assert patrol_start_result["api"] == "POST /api/patrol/tasks/patrol_demo_001/start"
+    assert patrol_start_result["task_name"] == "demo patrol"
+    assert patrol_default_start_result["api"] == "POST /api/patrol/tasks/patrol_default_001/start"
+    assert patrol_default_start_result["task_name"] == "默认巡航任务"
     assert patrol_stop_result["api"] == "POST /api/patrol/tasks/patrol_demo_001/stop"
     assert patrol_runtime_result["api"] == "GET /api/patrol/tasks/patrol_demo_001/runtime"
     assert patrol_calls == [
         ("list", 5),
+        ("list", 100),
         ("start", "patrol_demo_001"),
+        ("list", 100),
+        ("start", "patrol_default_001"),
+        ("list", 100),
         ("stop", "patrol_demo_001"),
+        ("list", 100),
         ("runtime", "patrol_demo_001"),
     ]
 

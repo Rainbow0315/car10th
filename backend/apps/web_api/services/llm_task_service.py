@@ -549,11 +549,12 @@ class LlmTaskService:
                 "If the robot is omitted, use the requested robot context or the ready robot in robot_context.",
                 "Use fleet.safety_stop only when the user explicitly asks to stop, brake, halt, emergency-stop, or says the robot is unsafe.",
                 "For patrol/cruise/xunhang/巡航 requests, use patrol.* tools instead of fleet.motion.",
-                "Use patrol.list_tasks when the user asks to list patrol tasks or asks to cruise/patrol without a task_code.",
-                "If the Chinese user says '开始巡航' or '启动巡航' but gives no task_code, use patrol.list_tasks.",
-                "Use patrol.start_task only when the user explicitly asks to start/launch/resume patrol and provides a task_code.",
-                "Use patrol.stop_task only when the user explicitly asks to stop/cancel patrol and provides a task_code.",
-                "Use patrol.runtime when the user asks for patrol progress/status/runtime and provides a task_code.",
+                "Use patrol.list_tasks when the user asks to list patrol tasks or asks to cruise/patrol without a task reference.",
+                "If the Chinese user says '开始巡航' or '启动巡航' but gives no task reference, use patrol.list_tasks.",
+                "Use patrol.start_task only when the user explicitly asks to start/launch/resume patrol and provides a task name or task_code as task_ref.",
+                "Use patrol.stop_task only when the user explicitly asks to stop/cancel patrol and provides a task name or task_code as task_ref.",
+                "Use patrol.runtime when the user asks for patrol progress/status/runtime and provides a task name or task_code as task_ref.",
+                "The mobile app creates patrol tasks from map waypoints, then starts/stops them by taskCode internally; users usually know task names, not task_codes.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
@@ -651,7 +652,16 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.start_task",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
+                        }
+                    ],
+                },
+                {
+                    "user": "启动默认巡航任务",
+                    "steps": [
+                        {
+                            "tool": "patrol.start_task",
+                            "arguments": {"task_ref": "默认巡航任务"},
                         }
                     ],
                 },
@@ -660,7 +670,7 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.stop_task",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
                         }
                     ],
                 },
@@ -669,7 +679,7 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.runtime",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
                         }
                     ],
                 },
@@ -678,7 +688,7 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.start_task",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
                         }
                     ],
                 },
@@ -687,7 +697,7 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.stop_task",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
                         }
                     ],
                 },
@@ -696,7 +706,7 @@ class LlmTaskService:
                     "steps": [
                         {
                             "tool": "patrol.runtime",
-                            "arguments": {"task_code": "patrol_demo_001"},
+                            "arguments": {"task_ref": "patrol_demo_001"},
                         }
                     ],
                 },
@@ -833,16 +843,19 @@ class LlmTaskService:
                 normalized["robot_codes"] = robot_codes
 
         elif spec.name in {"patrol.start_task", "patrol.stop_task", "patrol.runtime"}:
-            task_code = (
+            task_ref = (
                 normalized.get("task_code")
                 or normalized.get("patrol_task_code")
+                or normalized.get("task_ref")
+                or normalized.get("task_name")
+                or normalized.get("name")
                 or normalized.get("task_id")
                 or normalized.get("id")
             )
-            if (task_code is None or not str(task_code).strip()) and request is not None:
-                task_code = self._patrol_task_code_from_text(request.message)
-            if task_code is not None and str(task_code).strip():
-                normalized["task_code"] = str(task_code).strip()
+            if (task_ref is None or not str(task_ref).strip()) and request is not None:
+                task_ref = self._patrol_task_ref_from_text(request.message)
+            if task_ref is not None and str(task_ref).strip():
+                normalized["task_ref"] = str(task_ref).strip()
 
         elif spec.name == "patrol.list_tasks":
             raw_limit = normalized.get("limit")
@@ -864,19 +877,19 @@ class LlmTaskService:
         if any(keyword in text for keyword in ["list robots", "robots", "小车列表", "有哪些小车", "列出小车"]):
             return [self._step(1, "fleet.list_robots", {})]
         if self._is_patrol_request(text):
-            task_code = self._patrol_task_code_from_text(text)
+            task_ref = self._patrol_task_ref_from_text(text)
             normalized = text.strip().lower()
             if any(keyword in normalized for keyword in ["stop patrol", "cancel patrol", "停止巡航", "取消巡航", "结束巡航"]):
-                if task_code:
-                    return [self._step(1, "patrol.stop_task", {"task_code": task_code})]
+                if task_ref:
+                    return [self._step(1, "patrol.stop_task", {"task_ref": task_ref})]
                 return [self._step(1, "patrol.list_tasks", {"limit": 20})]
             if any(keyword in normalized for keyword in ["status", "runtime", "progress", "进度", "状态", "运行状态"]):
-                if task_code:
-                    return [self._step(1, "patrol.runtime", {"task_code": task_code})]
+                if task_ref:
+                    return [self._step(1, "patrol.runtime", {"task_ref": task_ref})]
                 return [self._step(1, "patrol.list_tasks", {"limit": 20})]
             if any(keyword in normalized for keyword in ["start patrol", "launch patrol", "resume patrol", "开始巡航", "启动巡航", "执行巡航"]):
-                if task_code:
-                    return [self._step(1, "patrol.start_task", {"task_code": task_code})]
+                if task_ref:
+                    return [self._step(1, "patrol.start_task", {"task_ref": task_ref})]
                 return [self._step(1, "patrol.list_tasks", {"limit": 20})]
             return [self._step(1, "patrol.list_tasks", {"limit": 20})]
         if any(keyword in text for keyword in ["rescue approach", "approach rescue", "靠近救援", "接近故障车"]):
@@ -1257,13 +1270,12 @@ class LlmTaskService:
     def _execute_patrol_start(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         from apps.web_api.services.patrol_service import patrol_service
 
-        task_code = str(arguments.get("task_code") or "").strip()
-        if not task_code:
-            raise ValueError("patrol.start_task requires task_code")
+        task_code, task = self._resolve_patrol_task(arguments)
         patrol_service.start_task(task_code)
         return {
             "api": f"POST /api/patrol/tasks/{task_code}/start",
             "task_code": task_code,
+            "task_name": str(getattr(task, "task_name", "")),
             "status": "accepted",
             "detail": "patrol started",
         }
@@ -1271,13 +1283,12 @@ class LlmTaskService:
     def _execute_patrol_stop(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         from apps.web_api.services.patrol_service import patrol_service
 
-        task_code = str(arguments.get("task_code") or "").strip()
-        if not task_code:
-            raise ValueError("patrol.stop_task requires task_code")
+        task_code, task = self._resolve_patrol_task(arguments)
         patrol_service.stop_task(task_code)
         return {
             "api": f"POST /api/patrol/tasks/{task_code}/stop",
             "task_code": task_code,
+            "task_name": str(getattr(task, "task_name", "")),
             "status": "accepted",
             "detail": "patrol stop requested",
         }
@@ -1285,14 +1296,66 @@ class LlmTaskService:
     def _execute_patrol_runtime(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         from apps.web_api.services.patrol_service import patrol_service
 
-        task_code = str(arguments.get("task_code") or "").strip()
-        if not task_code:
-            raise ValueError("patrol.runtime requires task_code")
+        task_code, task = self._resolve_patrol_task(arguments)
         return {
             "api": f"GET /api/patrol/tasks/{task_code}/runtime",
             "task_code": task_code,
+            "task_name": str(getattr(task, "task_name", "")),
             "runtime": patrol_service.get_runtime(task_code),
         }
+
+    def _resolve_patrol_task(self, arguments: Dict[str, Any]) -> tuple[str, Any]:
+        from apps.web_api.services.patrol_service import patrol_service
+
+        task_ref = str(
+            arguments.get("task_ref")
+            or arguments.get("task_code")
+            or arguments.get("task_name")
+            or arguments.get("name")
+            or ""
+        ).strip()
+        if not task_ref:
+            raise ValueError("patrol task reference is required; ask the user to choose a task from patrol.list_tasks")
+
+        tasks = list(patrol_service.list_tasks(limit=100))
+        exact_code_matches = [task for task in tasks if str(getattr(task, "task_code", "")).strip() == task_ref]
+        if exact_code_matches:
+            task = exact_code_matches[0]
+            return str(getattr(task, "task_code")), task
+
+        task_ref_lower = task_ref.lower()
+        exact_name_matches = [
+            task
+            for task in tasks
+            if str(getattr(task, "task_name", "")).strip().lower() == task_ref_lower
+        ]
+        if len(exact_name_matches) == 1:
+            task = exact_name_matches[0]
+            return str(getattr(task, "task_code")), task
+        if len(exact_name_matches) > 1:
+            names = ", ".join(str(getattr(task, "task_code", "")) for task in exact_name_matches[:5])
+            raise ValueError(f"patrol task name is ambiguous; matching task_codes: {names}")
+
+        partial_name_matches = [
+            task
+            for task in tasks
+            if task_ref_lower in str(getattr(task, "task_name", "")).strip().lower()
+        ]
+        if len(partial_name_matches) == 1:
+            task = partial_name_matches[0]
+            return str(getattr(task, "task_code")), task
+        if len(partial_name_matches) > 1:
+            names = ", ".join(
+                f"{getattr(task, 'task_name', '')}({getattr(task, 'task_code', '')})"
+                for task in partial_name_matches[:5]
+            )
+            raise ValueError(f"patrol task reference is ambiguous; matches: {names}")
+
+        available = ", ".join(
+            f"{getattr(task, 'task_name', '')}({getattr(task, 'task_code', '')})"
+            for task in tasks[:5]
+        )
+        raise ValueError(f"patrol task not found for reference {task_ref!r}; available tasks: {available}")
 
     def _patrol_task_snapshot(self, task: Any) -> Dict[str, Any]:
         status_value = getattr(getattr(task, "status", None), "value", None) or getattr(task, "status", None)
@@ -1453,6 +1516,18 @@ class LlmTaskService:
             value = arguments.get(name)
             if spec.name == "fleet.motion" and name == "robot_code":
                 if not self._motion_robot_codes(arguments):
+                    missing.append(name)
+                continue
+            if spec.name in {"patrol.start_task", "patrol.stop_task", "patrol.runtime"} and name == "task_ref":
+                task_ref = (
+                    arguments.get("task_ref")
+                    or arguments.get("task_code")
+                    or arguments.get("task_name")
+                    or arguments.get("name")
+                    or arguments.get("task_id")
+                    or arguments.get("id")
+                )
+                if task_ref is None or (isinstance(task_ref, str) and not task_ref.strip()):
                     missing.append(name)
                 continue
             if name == "robot_codes":
@@ -1639,10 +1714,10 @@ class LlmTaskService:
             LlmToolSpec(
                 name="patrol.start_task",
                 title="启动巡航任务",
-                description="按 task_code 启动一个已有巡航任务，会调用巡航任务模块按航点导航；必须由用户明确给出任务编号。",
+                description="启动一个已有巡航任务。task_ref 可以是前端展示的任务名或后端返回的 task_code；没有明确任务引用时先列出任务，不要猜测。",
                 backend_route="POST /api/patrol/tasks/{task_code}/start",
                 command_name="patrol_start",
-                required_arguments=["task_code"],
+                required_arguments=["task_ref"],
                 safety_level="motion_command",
                 readiness_required=True,
                 requires_confirmation=True,
@@ -1650,19 +1725,19 @@ class LlmTaskService:
             LlmToolSpec(
                 name="patrol.stop_task",
                 title="停止巡航任务",
-                description="按 task_code 停止一个正在运行的巡航任务。",
+                description="停止一个正在运行的巡航任务。task_ref 可以是前端展示的任务名或后端返回的 task_code。",
                 backend_route="POST /api/patrol/tasks/{task_code}/stop",
                 command_name="patrol_stop",
-                required_arguments=["task_code"],
+                required_arguments=["task_ref"],
                 safety_level="safe_command",
                 requires_confirmation=True,
             ),
             LlmToolSpec(
                 name="patrol.runtime",
                 title="查询巡航运行状态",
-                description="按 task_code 查询巡航任务当前运行状态、当前航点和最近位置；不会控制小车。",
+                description="查询巡航任务当前运行状态、当前航点和最近位置。task_ref 可以是前端展示的任务名或后端返回的 task_code；不会控制小车。",
                 backend_route="GET /api/patrol/tasks/{task_code}/runtime",
-                required_arguments=["task_code"],
+                required_arguments=["task_ref"],
                 safety_level="read_only",
                 requires_confirmation=False,
             ),
@@ -1704,7 +1779,38 @@ class LlmTaskService:
             ]
         )
 
-    def _patrol_task_code_from_text(self, text: str) -> Optional[str]:
+    def _patrol_task_ref_from_text(self, text: str) -> Optional[str]:
+        quoted = re.search(r"[\"'“”‘’「」](.+?)[\"'“”‘’「」]", text)
+        if quoted:
+            candidate = quoted.group(1).strip()
+            if candidate:
+                return candidate
+        cleaned = text.strip()
+        for token in [
+            "启动",
+            "开始",
+            "执行",
+            "停止",
+            "取消",
+            "结束",
+            "查询",
+            "查看",
+            "运行状态",
+            "状态",
+            "进度",
+            "巡航任务",
+            "巡航",
+            "巡检任务",
+            "巡检",
+            "任务",
+            "一下",
+            "请",
+            "帮我",
+        ]:
+            cleaned = cleaned.replace(token, " ")
+        candidate = re.sub(r"\s+", " ", cleaned).strip(" ：:,，。")
+        if candidate and candidate.lower() not in {"patrol", "cruise", "xunhang"}:
+            return candidate
         patterns = [
             r"(?:task_code|task id|task|patrol task|任务编号|任务|巡航任务)\s*[:：#]?\s*([A-Za-z0-9][A-Za-z0-9_-]{2,})",
             r"\b([a-f0-9]{16,32})\b",
