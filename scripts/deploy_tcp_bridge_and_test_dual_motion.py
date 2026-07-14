@@ -42,12 +42,12 @@ def main() -> None:
     parser.add_argument(
         "--car1-domain",
         default="auto",
-        help="ROS_DOMAIN_ID for car1 tcp bridge; use auto to reuse the running ros_bridge domain.",
+        help="ROS_DOMAIN_ID for car1 tcp bridge; use auto to reuse the running ros_bridge domain, or pass an explicit value such as 30.",
     )
     parser.add_argument(
         "--car2-domain",
         default="auto",
-        help="ROS_DOMAIN_ID for car2 tcp bridge; use auto to reuse the running ros_bridge domain.",
+        help="ROS_DOMAIN_ID for car2 tcp bridge; use auto to reuse the running ros_bridge domain, or pass an explicit value such as 31.",
     )
     parser.add_argument("--port", type=int, default=6001)
     parser.add_argument("--duration", type=float, default=2.0)

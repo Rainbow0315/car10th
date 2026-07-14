@@ -4,7 +4,7 @@ param(
     [string]$MysqlHost = "127.0.0.1",
     [int]$MysqlPort = 3306,
     [string]$MysqlPassword = "jyt20050315",
-    [string]$RosBridgeHttpUrl = "http://192.168.137.89:8001",
+    [string]$RosBridgeHttpUrl = "http://192.168.137.95:8001",
     [int]$Port = 8000,
     [string]$MqttClientId = "parking_backend",
     [switch]$SkipDocker,
