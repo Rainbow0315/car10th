@@ -28,6 +28,7 @@ class _ControlPageState extends State<ControlPage>
   final Set<String> _selectedRobots = {'robot_001'};
   double _speedScale = 0.65;
   bool _busy = false;
+  bool _autoFollowOn = false;
   String _lastCommand = '待机';
   Offset _stick = Offset.zero;
   Timer? _repeatTimer;
@@ -162,7 +163,35 @@ class _ControlPageState extends State<ControlPage>
     );
   }
 
+  Future<void> _setAutoFollow(bool enabled) async {
+    if (_mode == _ControlMode.fleet) return;
+
+    await _send(
+      enabled ? '自动跟随' : '停止跟随',
+      (repo) => enabled ? repo.startTracking() : repo.stopTracking(),
+      toast: true,
+    );
+    if (!mounted) return;
+    setState(() => _autoFollowOn = enabled);
+  }
+
+  Future<void> _stopAutoFollow({bool showBusy = true}) async {
+    if (!_autoFollowOn || _mode == _ControlMode.fleet) return;
+
+    await _send(
+      '停止跟随',
+      (repo) => repo.stopTracking(),
+      showBusy: showBusy,
+      showError: false,
+    );
+    if (!mounted) return;
+    setState(() => _autoFollowOn = false);
+  }
+
   void _startRepeating(Future<void> Function() action) {
+    if (_autoFollowOn) {
+      unawaited(_stopAutoFollow(showBusy: false));
+    }
     _repeatTimer?.cancel();
     _repeatAction = action;
     unawaited(_runRepeatOnce());
@@ -201,6 +230,7 @@ class _ControlPageState extends State<ControlPage>
   }
 
   Future<void> _selectSingleRobot(String robotCode) async {
+    await _stopAutoFollow(showBusy: false);
     final settings = context.read<AppSettings>();
     await settings.selectControlRobot(robotCode);
     if (!mounted) return;
@@ -224,6 +254,7 @@ class _ControlPageState extends State<ControlPage>
 
   Future<void> _setMode(_ControlMode mode) async {
     if (_mode == mode) return;
+    await _stopAutoFollow(showBusy: false);
     await _stop(showBusy: false);
     if (!mounted) return;
     final settings = context.read<AppSettings>();
@@ -480,9 +511,15 @@ class _ControlPageState extends State<ControlPage>
               children: [
                 _DirectionTab(
                   speedScale: _speedScale,
+                  autoFollowOn: _autoFollowOn,
+                  autoFollowEnabled:
+                      _mode == _ControlMode.single && _repeatTimer == null,
                   onCommandDown: _startDirection,
                   onCommandUp: () => unawaited(_stopRepeating()),
-                  onStop: () => _stop(toast: true),
+                  onStop: () async {
+                    await _stopAutoFollow(showBusy: false);
+                    await _stop(toast: true);
+                  },
                   onBrake: () => _send(
                     '刹停',
                     (repo) => _mode == _ControlMode.fleet
@@ -490,6 +527,7 @@ class _ControlPageState extends State<ControlPage>
                         : repo.brakeRobot(),
                     toast: true,
                   ),
+                  onToggleAutoFollow: _setAutoFollow,
                   onStartLightShow: () => _send(
                     '开始灯光秀',
                     (repo) => repo.startLightShow(),
@@ -511,7 +549,10 @@ class _ControlPageState extends State<ControlPage>
                   stick: _stick,
                   onMove: _sendVector,
                   onRelease: _releaseStick,
-                  onStop: () => _stop(toast: true),
+                  onStop: () async {
+                    await _stopAutoFollow(showBusy: false);
+                    await _stop(toast: true);
+                  },
                 ),
               ],
             ),
@@ -584,20 +625,26 @@ enum _MotionPreset {
 
 class _DirectionTab extends StatelessWidget {
   final double speedScale;
+  final bool autoFollowOn;
+  final bool autoFollowEnabled;
   final ValueChanged<_MotionPreset> onCommandDown;
   final VoidCallback onCommandUp;
   final Future<void> Function() onStop;
   final Future<void> Function() onBrake;
+  final Future<void> Function(bool enabled) onToggleAutoFollow;
   final Future<void> Function() onStartLightShow;
   final Future<void> Function() onStopLightShow;
   final Future<void> Function() onPlayAudio;
 
   const _DirectionTab({
     required this.speedScale,
+    required this.autoFollowOn,
+    required this.autoFollowEnabled,
     required this.onCommandDown,
     required this.onCommandUp,
     required this.onStop,
     required this.onBrake,
+    required this.onToggleAutoFollow,
     required this.onStartLightShow,
     required this.onStopLightShow,
     required this.onPlayAudio,
@@ -642,6 +689,21 @@ class _DirectionTab extends StatelessWidget {
               label: const Text('音频'),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: autoFollowEnabled
+                ? () => unawaited(onToggleAutoFollow(!autoFollowOn))
+                : null,
+            icon: Icon(
+              autoFollowOn
+                  ? Icons.person_off_outlined
+                  : Icons.transfer_within_a_station_outlined,
+            ),
+            label: Text(autoFollowOn ? '停止跟随' : '自动跟随'),
+          ),
         ),
         const SizedBox(height: 14),
         Center(
