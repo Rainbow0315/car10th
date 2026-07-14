@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import socketserver
 import threading
 from dataclasses import dataclass
@@ -27,6 +28,10 @@ class CarCommand:
 
 
 class ProtocolError(ValueError):
+    pass
+
+
+class ExternalCommandError(RuntimeError):
     pass
 
 
@@ -81,6 +86,20 @@ class TcpCarBridge:
         self.angular_speed = float(os.getenv("TCP_CAR_ANGULAR_SPEED", "0.9"))
         self.command_duration = float(os.getenv("TCP_CAR_COMMAND_DURATION", "0.35"))
         self.rate_hz = float(os.getenv("TCP_CAR_RATE_HZ", "10.0"))
+        self.track_start_command = os.getenv(
+            "TCP_CAR_TRACK_START_COMMAND",
+            "bash -lc 'source /opt/ros/foxy/setup.bash; "
+            "source /root/yahboomcar_ros2_ws/software/library_ws/install/setup.bash; "
+            "source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash; "
+            "exec ros2 run yahboomcar_laser laser_Tracker_a1_X3 "
+            "> /tmp/laser_tracker_app.log 2>&1'",
+        )
+        self.track_stop_command = os.getenv(
+            "TCP_CAR_TRACK_STOP_COMMAND",
+            "bash -lc 'pkill -f \"[l]aser_Tracker_a1_X3\" || true'",
+        )
+        self.track_command_timeout = float(os.getenv("TCP_CAR_TRACK_COMMAND_TIMEOUT", "8.0"))
+        self._tracking_process: Optional[subprocess.Popen] = None
         self.hardware: Optional[SerialCarHardware] = None
         self.headlights: Optional[HeadlightEffectController] = None
         if publisher is None:
@@ -114,8 +133,12 @@ class TcpCarBridge:
             self.show.stop()
         elif command.command == "33":
             self.audio.play()
-        elif command.command in {"60", "61", "62", "63", "64"}:
+        elif command.command in {"60", "61", "62"}:
             pass
+        elif command.command == "63":
+            self._handle_tracking_start()
+        elif command.command == "64":
+            self._handle_tracking_stop()
         else:
             raise ProtocolError(f"unsupported command: {command.command}")
         return "OK\n"
@@ -207,6 +230,57 @@ class TcpCarBridge:
 
     def _publish_ros_light_effect(self, effect: int) -> None:
         self.publisher.publish_int32(self.light_topic, effect, repeat=3)
+
+    def _handle_tracking_start(self) -> None:
+        self._stop_show_if_running()
+        self._run_external_command("tracking pre-stop", self.track_stop_command)
+        self._start_external_command("tracking start", self.track_start_command)
+
+    def _handle_tracking_stop(self) -> None:
+        self._run_external_command("tracking stop", self.track_stop_command)
+        self._tracking_process = None
+        self.publisher.stop()
+
+    def _start_external_command(self, label: str, command: str) -> None:
+        if not command.strip():
+            raise ExternalCommandError(f"{label} command is empty")
+        try:
+            self._tracking_process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise ExternalCommandError(f"{label} command failed to start: {exc}") from exc
+
+    def _run_external_command(self, label: str, command: str) -> None:
+        if not command.strip():
+            raise ExternalCommandError(f"{label} command is empty")
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=self.track_command_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ExternalCommandError(
+                f"{label} command timed out after {self.track_command_timeout:.1f}s"
+            ) from exc
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            if detail:
+                raise ExternalCommandError(
+                    f"{label} command failed with exit {result.returncode}: {detail}"
+                )
+            raise ExternalCommandError(f"{label} command failed with exit {result.returncode}")
 
     def _set_show_light_scene(self, scene: int) -> None:
         if self.hardware is None:

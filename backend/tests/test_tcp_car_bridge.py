@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 import unittest
 
-from apps.tcp_car_bridge.main import ProtocolError, TcpCarBridge, parse_frame
+from apps.tcp_car_bridge.main import ExternalCommandError, ProtocolError, TcpCarBridge, parse_frame
 
 
 def frame(command: str, data: str = "") -> str:
@@ -100,6 +101,28 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.assertEqual(response, "OK\n")
         self.assertEqual(self.audio.played, 1)
         self.assertEqual(self.show.stopped, [])
+
+    def test_tracking_start_runs_external_command(self) -> None:
+        self.show.is_running = True
+        self.bridge.track_stop_command = f'"{sys.executable}" -c "print(\'tracking pre-stop\')"'
+        self.bridge.track_start_command = f'"{sys.executable}" -c "print(\'tracking start\')"'
+        response = self.bridge.handle_frame(frame("63"))
+        if self.bridge._tracking_process is not None:
+            self.bridge._tracking_process.wait(timeout=2)
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.show.stopped, [True])
+
+    def test_tracking_stop_runs_external_command_and_stops_ros_motion(self) -> None:
+        self.bridge.track_stop_command = f'"{sys.executable}" -c "print(\'tracking stop\')"'
+        response = self.bridge.handle_frame(frame("64"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.publisher.stop_count, 1)
+
+    def test_empty_tracking_start_command_is_rejected(self) -> None:
+        self.bridge.track_stop_command = f'"{sys.executable}" -c "print(\'tracking pre-stop\')"'
+        self.bridge.track_start_command = ""
+        with self.assertRaisesRegex(ExternalCommandError, "tracking start command is empty"):
+            self.bridge.handle_frame(frame("63"))
 
 
 if __name__ == "__main__":

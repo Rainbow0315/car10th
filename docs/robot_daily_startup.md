@@ -68,6 +68,8 @@ cd /root/car10th/backend
 nohup python3 -m apps.ros_bridge.main \
   > /tmp/ros_bridge.log 2>&1 &
 
+export TCP_CAR_TRACK_START_COMMAND="bash -lc 'source /opt/ros/foxy/setup.bash; source /root/yahboomcar_ros2_ws/software/library_ws/install/setup.bash; source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash; exec ros2 run yahboomcar_laser laser_Tracker_a1_X3 > /tmp/laser_tracker_app.log 2>&1'"
+export TCP_CAR_TRACK_STOP_COMMAND="bash -lc 'pkill -f \"[l]aser_Tracker_a1_X3\" || true'"
 nohup python3 -m apps.tcp_car_bridge.main \
   > /tmp/tcp_car_bridge.log 2>&1 &
 
