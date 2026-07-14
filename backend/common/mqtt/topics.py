@@ -54,3 +54,10 @@ APP_CONTROL_SUBSCRIBE = "app/control/#"
 
 # Subscribe all robot uplink messages: robot/{robot_code}/{message_type}
 ROBOT_UPLINK_SUBSCRIBE = "robot/+/+"
+ROBOT_UPLINK_SUBSCRIBE_TOPICS = [
+    "robot/+/heartbeat",
+    "robot/+/status",
+    "robot/+/pose",
+    "robot/+/event",
+    "robot/+/ack",
+]

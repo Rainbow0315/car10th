@@ -13,10 +13,13 @@ if [ "$MQTT_BACKEND_USERNAME" = "$MQTT_APP_USERNAME" ]; then
   exit 1
 fi
 
+rm -f /tmp/mosquitto_passwd /tmp/mosquitto_acl
+
 mosquitto_passwd -b -c /tmp/mosquitto_passwd "$MQTT_BACKEND_USERNAME" "$MQTT_BACKEND_PASSWORD"
 mosquitto_passwd -b /tmp/mosquitto_passwd "$MQTT_APP_USERNAME" "$MQTT_APP_PASSWORD"
 mosquitto_passwd -b /tmp/mosquitto_passwd "$MQTT_ROBOT_USERNAME" "$MQTT_ROBOT_PASSWORD"
-chmod 644 /tmp/mosquitto_passwd
+chown mosquitto:mosquitto /tmp/mosquitto_passwd
+chmod 600 /tmp/mosquitto_passwd
 
 cat > /tmp/mosquitto_acl <<EOF
 user $MQTT_BACKEND_USERNAME
@@ -39,6 +42,7 @@ topic read fleet/command/#
 topic read fleet/task/#
 topic read fleet/broadcast
 EOF
-chmod 644 /tmp/mosquitto_acl
+chown mosquitto:mosquitto /tmp/mosquitto_acl
+chmod 600 /tmp/mosquitto_acl
 
 exec mosquitto -c /mosquitto/config/mosquitto.conf

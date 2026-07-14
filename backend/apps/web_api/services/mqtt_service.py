@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from apps.web_api.services.fleet_service import fleet_service
 from apps.web_api.services.robot_service import robot_service
 from common.config.settings import settings
-from common.mqtt import APP_CONTROL_SUBSCRIBE, ROBOT_UPLINK_SUBSCRIBE, ALARM_NOTIFY, mqtt_manager, robot_status_topic
+from common.mqtt import APP_CONTROL_SUBSCRIBE, ROBOT_UPLINK_SUBSCRIBE_TOPICS, ALARM_NOTIFY, mqtt_manager, robot_status_topic
 from common.schemas.robot import AlarmNotifyPayload, MqttHealthResponse, RobotControlRequest, RobotStatusPayload
 from common.utils.operation_log import write_operation_log
 
@@ -23,7 +23,7 @@ class MqttService:
 
     def start(self) -> None:
         mqtt_manager.set_message_handler(self.handle_message)
-        mqtt_manager.start(subscribe_topics=[APP_CONTROL_SUBSCRIBE, ROBOT_UPLINK_SUBSCRIBE])
+        mqtt_manager.start(subscribe_topics=[APP_CONTROL_SUBSCRIBE, *ROBOT_UPLINK_SUBSCRIBE_TOPICS])
         logger.info("MQTT service started")
 
     async def start_heartbeat(self) -> None:
