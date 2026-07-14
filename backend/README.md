@@ -244,3 +244,18 @@ nohup python3 -m apps.tcp_car_bridge.main > /tmp/tcp_car_bridge.log 2>&1 &
 ```bash
 export TCP_CAR_AUDIO_FILE=/home/jetson/car_audio/倒车请注意.MP3
 ```
+
+## TCP 小车自动跟随
+
+Flutter 控制页的“自动跟随”按钮会向 `tcp_car_bridge` 发送 TCP 指令 `63`，再次停止时发送 `64`。
+车端收到后会执行以下环境变量配置的命令：
+
+```bash
+export TCP_CAR_TRACK_START_COMMAND="bash -lc 'source /opt/ros/foxy/setup.bash; source /root/yahboomcar_ros2_ws/software/library_ws/install/setup.bash; source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash; exec ros2 run yahboomcar_laser laser_Tracker_a1_X3 > /tmp/laser_tracker_app.log 2>&1'"
+export TCP_CAR_TRACK_STOP_COMMAND="bash -lc 'pkill -f \"[l]aser_Tracker_a1_X3\" || true'"
+export TCP_CAR_TRACK_COMMAND_TIMEOUT=8
+
+python3 -m apps.tcp_car_bridge.main
+```
+
+默认命令会在当前 ROS 容器内启动原厂激光跟随节点 `yahboomcar_laser laser_Tracker_a1_X3`。如果小车上的真实跟随启动方式不同，只需要把这两个环境变量改成实际命令，不需要改 Flutter。

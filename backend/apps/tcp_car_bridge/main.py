@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import socketserver
 import threading
 from dataclasses import dataclass
@@ -27,6 +28,10 @@ class CarCommand:
 
 
 class ProtocolError(ValueError):
+    pass
+
+
+class ExternalCommandError(RuntimeError):
     pass
 
 
@@ -81,8 +86,24 @@ class TcpCarBridge:
         self.angular_speed = float(os.getenv("TCP_CAR_ANGULAR_SPEED", "0.9"))
         self.command_duration = float(os.getenv("TCP_CAR_COMMAND_DURATION", "0.35"))
         self.rate_hz = float(os.getenv("TCP_CAR_RATE_HZ", "10.0"))
+        self.track_start_command = os.getenv(
+            "TCP_CAR_TRACK_START_COMMAND",
+            "bash -lc 'source /opt/ros/foxy/setup.bash; "
+            "source /root/yahboomcar_ros2_ws/software/library_ws/install/setup.bash; "
+            "source /root/yahboomcar_ros2_ws/yahboomcar_ws/install/setup.bash; "
+            "exec ros2 run yahboomcar_laser laser_Tracker_a1_X3 "
+            "> /tmp/laser_tracker_app.log 2>&1'",
+        )
+        self.track_stop_command = os.getenv(
+            "TCP_CAR_TRACK_STOP_COMMAND",
+            "bash -lc 'pkill -f \"[l]aser_Tracker_a1_X3\" || true'",
+        )
+        self.track_command_timeout = float(os.getenv("TCP_CAR_TRACK_COMMAND_TIMEOUT", "8.0"))
+        self._tracking_process: Optional[subprocess.Popen] = None
         self.hardware: Optional[SerialCarHardware] = None
         self.headlights: Optional[HeadlightEffectController] = None
+        self._stop_thread: Optional[threading.Thread] = None
+        self._stop_lock = threading.Lock()
         if publisher is None:
             try:
                 self.hardware = SerialCarHardware(
@@ -113,9 +134,13 @@ class TcpCarBridge:
         elif command.command == "32":
             self.show.stop()
         elif command.command == "33":
-            self.audio.play()
-        elif command.command in {"60", "61", "62", "63", "64"}:
+            self._handle_audio(command.data)
+        elif command.command in {"60", "61", "62"}:
             pass
+        elif command.command == "63":
+            self._handle_tracking_start()
+        elif command.command == "64":
+            self._handle_tracking_stop()
         else:
             raise ProtocolError(f"unsupported command: {command.command}")
         return "OK\n"
@@ -130,7 +155,7 @@ class TcpCarBridge:
         angular_z = 0.0
 
         if direction == 0:
-            self.publisher.stop()
+            self._request_motion_stop()
             return
         if direction == 1:
             linear_x = self.linear_speed
@@ -145,7 +170,7 @@ class TcpCarBridge:
         elif direction == 6:
             angular_z = -self.angular_speed
         elif direction == 7:
-            self.publisher.stop()
+            self._request_motion_stop()
             return
         else:
             raise ProtocolError(f"unsupported direction: {direction}")
@@ -205,8 +230,92 @@ class TcpCarBridge:
         else:
             self._publish_ros_light_effect(effect)
 
+    def _handle_audio(self, data: str) -> None:
+        track_index = 0
+        volume_percent = 80
+        if len(data) >= 2:
+            track_index = _byte(data[0:2])
+        if len(data) >= 4:
+            volume_percent = _byte(data[2:4])
+        if volume_percent > 100:
+            raise ProtocolError(f"unsupported audio volume: {volume_percent}")
+        self.audio.play(track_index=track_index, volume_percent=volume_percent)
+
+    def _request_motion_stop(self) -> None:
+        with self._stop_lock:
+            if self._stop_thread is not None and self._stop_thread.is_alive():
+                return
+            thread = threading.Thread(
+                target=self._stop_motion_worker,
+                name="tcp-car-bridge-stop",
+                daemon=True,
+            )
+            self._stop_thread = thread
+            thread.start()
+
+    def _stop_motion_worker(self) -> None:
+        try:
+            self.publisher.stop()
+        except Exception as exc:
+            print(f"Failed to publish stop command: {exc}", flush=True)
+        finally:
+            with self._stop_lock:
+                if self._stop_thread is threading.current_thread():
+                    self._stop_thread = None
+
     def _publish_ros_light_effect(self, effect: int) -> None:
         self.publisher.publish_int32(self.light_topic, effect, repeat=3)
+
+    def _handle_tracking_start(self) -> None:
+        self._stop_show_if_running()
+        self._run_external_command("tracking pre-stop", self.track_stop_command)
+        self._start_external_command("tracking start", self.track_start_command)
+
+    def _handle_tracking_stop(self) -> None:
+        self._run_external_command("tracking stop", self.track_stop_command)
+        self._tracking_process = None
+        self.publisher.stop()
+
+    def _start_external_command(self, label: str, command: str) -> None:
+        if not command.strip():
+            raise ExternalCommandError(f"{label} command is empty")
+        try:
+            self._tracking_process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise ExternalCommandError(f"{label} command failed to start: {exc}") from exc
+
+    def _run_external_command(self, label: str, command: str) -> None:
+        if not command.strip():
+            raise ExternalCommandError(f"{label} command is empty")
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=self.track_command_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ExternalCommandError(
+                f"{label} command timed out after {self.track_command_timeout:.1f}s"
+            ) from exc
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            if detail:
+                raise ExternalCommandError(
+                    f"{label} command failed with exit {result.returncode}: {detail}"
+                )
+            raise ExternalCommandError(f"{label} command failed with exit {result.returncode}")
 
     def _set_show_light_scene(self, scene: int) -> None:
         if self.hardware is None:
@@ -223,6 +332,9 @@ class TcpCarBridge:
         self.show.stop()
         if self.headlights is not None:
             self.headlights.stop()
+        stop_thread = self._stop_thread
+        if stop_thread is not None and stop_thread is not threading.current_thread():
+            stop_thread.join(timeout=1.0)
         if self.hardware is not None:
             self.hardware.close()
         self.publisher.close()
@@ -281,7 +393,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop_server)
 
     print(f"TCP car bridge listening on {host}:{port}")
-    print("Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, show stop=32, audio=33")
+    print(
+        "Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, "
+        "show stop=32, audio=33(track,volume)"
+    )
     try:
         server.serve_forever()
     finally:

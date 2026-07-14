@@ -9,6 +9,8 @@ import '../../data/repository.dart';
 
 enum _ControlMode { single, fleet }
 
+enum _ControlSurface { direction, joystick }
+
 class ControlPage extends StatefulWidget {
   const ControlPage({super.key});
 
@@ -16,15 +18,14 @@ class ControlPage extends StatefulWidget {
   State<ControlPage> createState() => _ControlPageState();
 }
 
-class _ControlPageState extends State<ControlPage>
-    with SingleTickerProviderStateMixin {
+class _ControlPageState extends State<ControlPage> {
   static const _repeatInterval = Duration(milliseconds: 120);
   static const _baseLinearSpeed = 0.18;
   static const _baseAngularSpeed = 0.9;
   static const _commandDuration = 0.35;
 
-  late final TabController _tabController;
   _ControlMode _mode = _ControlMode.single;
+  _ControlSurface _surface = _ControlSurface.direction;
   final Set<String> _selectedRobots = {'robot_001'};
   double _speedScale = 0.65;
   bool _busy = false;
@@ -36,14 +37,11 @@ class _ControlPageState extends State<ControlPage>
   bool _repeatSending = false;
   Offset? _latestVectorLocal;
   Size? _latestVectorSize;
+  RobotLightEffect _selectedLightEffect = RobotLightEffect.off;
+  RobotAudioClip _selectedAudioClip = RobotAudioClip.warning;
+  double _audioVolume = 80;
 
   Repository get _repo => context.read<Repository>();
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
 
   @override
   void didChangeDependencies() {
@@ -164,11 +162,18 @@ class _ControlPageState extends State<ControlPage>
   }
 
   Future<void> _setAutoFollow(bool enabled) async {
-    if (_mode == _ControlMode.fleet) return;
+    final isFleet = _mode == _ControlMode.fleet;
 
     await _send(
       enabled ? '自动跟随' : '停止跟随',
-      (repo) => enabled ? repo.startTracking() : repo.stopTracking(),
+      (repo) {
+        if (isFleet) {
+          return enabled
+              ? repo.startFleetTracking(robotCodes: _robotCodes)
+              : repo.stopFleetTracking(robotCodes: _robotCodes);
+        }
+        return enabled ? repo.startTracking() : repo.stopTracking();
+      },
       toast: true,
     );
     if (!mounted) return;
@@ -176,11 +181,14 @@ class _ControlPageState extends State<ControlPage>
   }
 
   Future<void> _stopAutoFollow({bool showBusy = true}) async {
-    if (!_autoFollowOn || _mode == _ControlMode.fleet) return;
+    if (!_autoFollowOn) return;
+    final isFleet = _mode == _ControlMode.fleet;
 
     await _send(
       '停止跟随',
-      (repo) => repo.stopTracking(),
+      (repo) => isFleet
+          ? repo.stopFleetTracking(robotCodes: _robotCodes)
+          : repo.stopTracking(),
       showBusy: showBusy,
       showError: false,
     );
@@ -230,8 +238,8 @@ class _ControlPageState extends State<ControlPage>
   }
 
   Future<void> _selectSingleRobot(String robotCode) async {
-    await _stopAutoFollow(showBusy: false);
     final settings = context.read<AppSettings>();
+    await _stopAutoFollow(showBusy: false);
     await settings.selectControlRobot(robotCode);
     if (!mounted) return;
     setState(() {
@@ -390,7 +398,6 @@ class _ControlPageState extends State<ControlPage>
   @override
   void dispose() {
     _repeatTimer?.cancel();
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -420,7 +427,10 @@ class _ControlPageState extends State<ControlPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     SegmentedButton<_ControlMode>(
                       segments: const [
@@ -440,7 +450,24 @@ class _ControlPageState extends State<ControlPage>
                           ? null
                           : (values) => unawaited(_setMode(values.first)),
                     ),
-                    const Spacer(),
+                    SegmentedButton<_ControlSurface>(
+                      segments: const [
+                        ButtonSegment(
+                          value: _ControlSurface.direction,
+                          label: Text('方向'),
+                          icon: Icon(Icons.open_with),
+                        ),
+                        ButtonSegment(
+                          value: _ControlSurface.joystick,
+                          label: Text('摇杆'),
+                          icon: Icon(Icons.gamepad_outlined),
+                        ),
+                      ],
+                      selected: {_surface},
+                      onSelectionChanged: _repeatTimer != null
+                          ? null
+                          : (values) => setState(() => _surface = values.first),
+                    ),
                     IconButton.filledTonal(
                       tooltip: '速度',
                       onPressed: _showSpeedSheet,
@@ -498,64 +525,74 @@ class _ControlPageState extends State<ControlPage>
               ],
             ),
           ),
-          TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(icon: Icon(Icons.open_with), text: '方向'),
-              Tab(icon: Icon(Icons.gamepad_outlined), text: '摇杆'),
-            ],
-          ),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _DirectionTab(
-                  speedScale: _speedScale,
-                  autoFollowOn: _autoFollowOn,
-                  autoFollowEnabled:
-                      _mode == _ControlMode.single && _repeatTimer == null,
-                  onCommandDown: _startDirection,
-                  onCommandUp: () => unawaited(_stopRepeating()),
-                  onStop: () async {
-                    await _stopAutoFollow(showBusy: false);
-                    await _stop(toast: true);
-                  },
-                  onBrake: () => _send(
-                    '刹停',
-                    (repo) => _mode == _ControlMode.fleet
-                        ? repo.stopFleetRobots(robotCodes: _robotCodes)
-                        : repo.brakeRobot(),
-                    toast: true,
+            child: _surface == _ControlSurface.direction
+                ? _DirectionTab(
+                    speedScale: _speedScale,
+                    autoFollowOn: _autoFollowOn,
+                    autoFollowEnabled: _repeatTimer == null &&
+                        (_mode == _ControlMode.single ||
+                            _robotCodes.isNotEmpty),
+                    onCommandDown: _startDirection,
+                    onCommandUp: () => unawaited(_stopRepeating()),
+                    onStop: () async {
+                      await _stopAutoFollow(showBusy: false);
+                      await _stop(toast: true);
+                    },
+                    onBrake: () => _send(
+                      '刹停',
+                      (repo) => _mode == _ControlMode.fleet
+                          ? repo.stopFleetRobots(robotCodes: _robotCodes)
+                          : repo.brakeRobot(),
+                      toast: true,
+                    ),
+                    onToggleAutoFollow: _setAutoFollow,
+                    selectedLightEffect: _selectedLightEffect,
+                    onSetLightEffect: (effect) {
+                      setState(() => _selectedLightEffect = effect);
+                      return _send(
+                        _lightEffectLabel(effect),
+                        (repo) => repo.setLightEffect(effect),
+                        toast: true,
+                      );
+                    },
+                    onStartLightShow: () => _send(
+                      '开始灯光秀',
+                      (repo) => repo.startLightShow(),
+                      toast: true,
+                    ),
+                    onStopLightShow: () => _send(
+                      '停止灯光秀',
+                      (repo) => repo.stopLightShow(),
+                      toast: true,
+                    ),
+                    selectedAudioClip: _selectedAudioClip,
+                    audioVolume: _audioVolume,
+                    onAudioClipChanged: (clip) {
+                      setState(() => _selectedAudioClip = clip);
+                    },
+                    onAudioVolumeChanged: (value) {
+                      setState(() => _audioVolume = value);
+                    },
+                    onPlayAudio: () => _send(
+                      '播放音频',
+                      (repo) => repo.playAudio(
+                        clip: _selectedAudioClip,
+                        volumePercent: _audioVolume.round(),
+                      ),
+                      toast: true,
+                    ),
+                  )
+                : _JoystickTab(
+                    speedScale: _speedScale,
+                    stick: _stick,
+                    onMove: _sendVector,
+                    onRelease: _releaseStick,
+                    onStop: () async {
+                      await _stopAutoFollow(showBusy: false);
+                      await _stop(toast: true);
+                    },
                   ),
-                  onToggleAutoFollow: _setAutoFollow,
-                  onStartLightShow: () => _send(
-                    '开始灯光秀',
-                    (repo) => repo.startLightShow(),
-                    toast: true,
-                  ),
-                  onStopLightShow: () => _send(
-                    '停止灯光秀',
-                    (repo) => repo.stopLightShow(),
-                    toast: true,
-                  ),
-                  onPlayAudio: () => _send(
-                    '播放音频',
-                    (repo) => repo.playAudio(),
-                    toast: true,
-                  ),
-                ),
-                _JoystickTab(
-                  speedScale: _speedScale,
-                  stick: _stick,
-                  onMove: _sendVector,
-                  onRelease: _releaseStick,
-                  onStop: () async {
-                    await _stopAutoFollow(showBusy: false);
-                    await _stop(toast: true);
-                  },
-                ),
-              ],
-            ),
           ),
         ],
       ),
@@ -632,8 +669,14 @@ class _DirectionTab extends StatelessWidget {
   final Future<void> Function() onStop;
   final Future<void> Function() onBrake;
   final Future<void> Function(bool enabled) onToggleAutoFollow;
+  final RobotLightEffect selectedLightEffect;
+  final Future<void> Function(RobotLightEffect effect) onSetLightEffect;
   final Future<void> Function() onStartLightShow;
   final Future<void> Function() onStopLightShow;
+  final RobotAudioClip selectedAudioClip;
+  final double audioVolume;
+  final ValueChanged<RobotAudioClip> onAudioClipChanged;
+  final ValueChanged<double> onAudioVolumeChanged;
   final Future<void> Function() onPlayAudio;
 
   const _DirectionTab({
@@ -645,8 +688,14 @@ class _DirectionTab extends StatelessWidget {
     required this.onStop,
     required this.onBrake,
     required this.onToggleAutoFollow,
+    required this.selectedLightEffect,
+    required this.onSetLightEffect,
     required this.onStartLightShow,
     required this.onStopLightShow,
+    required this.selectedAudioClip,
+    required this.audioVolume,
+    required this.onAudioClipChanged,
+    required this.onAudioVolumeChanged,
     required this.onPlayAudio,
   });
 
@@ -669,28 +718,6 @@ class _DirectionTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: () => unawaited(onStartLightShow()),
-              icon: const Icon(Icons.light_mode_outlined),
-              label: const Text('灯光'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => unawaited(onStopLightShow()),
-              icon: const Icon(Icons.lightbulb_outline),
-              label: const Text('关灯'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: () => unawaited(onPlayAudio()),
-              icon: const Icon(Icons.volume_up_outlined),
-              label: const Text('音频'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
         Align(
           alignment: Alignment.centerLeft,
           child: FilledButton.icon(
@@ -766,6 +793,148 @@ class _DirectionTab extends StatelessWidget {
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 18),
+        _LightControlPanel(
+          selectedEffect: selectedLightEffect,
+          onSetEffect: onSetLightEffect,
+          onStartLightShow: onStartLightShow,
+          onStopLightShow: onStopLightShow,
+        ),
+        const SizedBox(height: 16),
+        _AudioControlPanel(
+          selectedClip: selectedAudioClip,
+          volume: audioVolume,
+          onClipChanged: onAudioClipChanged,
+          onVolumeChanged: onAudioVolumeChanged,
+          onPlayAudio: onPlayAudio,
+        ),
+      ],
+    );
+  }
+}
+
+class _LightControlPanel extends StatelessWidget {
+  final RobotLightEffect selectedEffect;
+  final Future<void> Function(RobotLightEffect effect) onSetEffect;
+  final Future<void> Function() onStartLightShow;
+  final Future<void> Function() onStopLightShow;
+
+  const _LightControlPanel({
+    required this.selectedEffect,
+    required this.onSetEffect,
+    required this.onStartLightShow,
+    required this.onStopLightShow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('灯光控制', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final effect in RobotLightEffect.values)
+              ChoiceChip(
+                avatar: Icon(_lightEffectIcon(effect), size: 18),
+                label: Text(_lightEffectLabel(effect)),
+                selected: selectedEffect == effect,
+                onSelected: (_) => unawaited(onSetEffect(effect)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: () => unawaited(onStartLightShow()),
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('开始灯光秀'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => unawaited(onStopLightShow()),
+              icon: const Icon(Icons.lightbulb_outline),
+              label: const Text('停止灯光秀'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AudioControlPanel extends StatelessWidget {
+  final RobotAudioClip selectedClip;
+  final double volume;
+  final ValueChanged<RobotAudioClip> onClipChanged;
+  final ValueChanged<double> onVolumeChanged;
+  final Future<void> Function() onPlayAudio;
+
+  const _AudioControlPanel({
+    required this.selectedClip,
+    required this.volume,
+    required this.onClipChanged,
+    required this.onVolumeChanged,
+    required this.onPlayAudio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('音频控制', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<RobotAudioClip>(
+          initialValue: selectedClip,
+          decoration: const InputDecoration(
+            labelText: '选择音频',
+            prefixIcon: Icon(Icons.library_music_outlined),
+          ),
+          items: [
+            for (final clip in RobotAudioClip.values)
+              DropdownMenuItem(
+                value: clip,
+                child: Text(_audioClipLabel(clip)),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) onClipChanged(value);
+          },
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Icon(Icons.volume_up_outlined),
+            Expanded(
+              child: Slider(
+                value: volume,
+                min: 0,
+                max: 100,
+                divisions: 10,
+                label: '${volume.round()}%',
+                onChanged: onVolumeChanged,
+              ),
+            ),
+            SizedBox(
+              width: 44,
+              child: Text(
+                '${volume.round()}%',
+                textAlign: TextAlign.end,
+              ),
+            ),
+          ],
+        ),
+        FilledButton.icon(
+          onPressed: () => unawaited(onPlayAudio()),
+          icon: const Icon(Icons.volume_up_outlined),
+          label: const Text('播放音频'),
         ),
       ],
     );
@@ -951,6 +1120,36 @@ class _JoystickPad extends StatelessWidget {
       ),
     );
   }
+}
+
+String _lightEffectLabel(RobotLightEffect effect) {
+  return switch (effect) {
+    RobotLightEffect.off => '关闭',
+    RobotLightEffect.running => '流水',
+    RobotLightEffect.marquee => '跑马',
+    RobotLightEffect.breathing => '呼吸',
+    RobotLightEffect.gradient => '渐变',
+    RobotLightEffect.starlight => '星光',
+  };
+}
+
+IconData _lightEffectIcon(RobotLightEffect effect) {
+  return switch (effect) {
+    RobotLightEffect.off => Icons.lightbulb_outline,
+    RobotLightEffect.running => Icons.waves,
+    RobotLightEffect.marquee => Icons.directions_run,
+    RobotLightEffect.breathing => Icons.air,
+    RobotLightEffect.gradient => Icons.gradient,
+    RobotLightEffect.starlight => Icons.auto_awesome,
+  };
+}
+
+String _audioClipLabel(RobotAudioClip clip) {
+  return switch (clip) {
+    RobotAudioClip.warning => '前方有危险',
+    RobotAudioClip.lightShow => '灯光秀',
+    RobotAudioClip.systemPrompt => '系统提示',
+  };
 }
 
 class _VectorMotion {
