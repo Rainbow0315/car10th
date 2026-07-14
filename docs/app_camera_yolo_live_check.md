@@ -62,9 +62,9 @@ snapshot saved, about 75-78 KB
 
 ```text
 POST /api/inspection/detect-ros-image
-enabled_models=["puddle","fod"]
+enabled_models=["unified"]
 device=cuda
-completed_models=["puddle","fod"]
+completed_models=["unified"]
 failed_models=[]
 ```
 
@@ -270,7 +270,7 @@ ros2 topic hz /image_raw
 curl -sS --max-time 300 \
   -X POST http://127.0.0.1:8002/api/inspection/detect-ros-image \
   -H "Content-Type: application/json" \
-  -d '{"topic_name":"/image_raw","timeout_sec":10,"camera_code":"usb_cam","enabled_models":["puddle","fod"]}'
+  -d '{"topic_name":"/image_raw","timeout_sec":10,"camera_code":"usb_cam","enabled_models":["unified"]}'
 ```
 
 再测 App 会经过的 `web_api:8000`：
@@ -279,7 +279,7 @@ curl -sS --max-time 300 \
 curl -sS --max-time 300 \
   -X POST http://127.0.0.1:8000/api/inspection/detect-ros-image \
   -H "Content-Type: application/json" \
-  -d '{"topic_name":"/image_raw","timeout_sec":10,"camera_code":"usb_cam","enabled_models":["puddle","fod"]}'
+  -d '{"topic_name":"/image_raw","timeout_sec":10,"camera_code":"usb_cam","enabled_models":["unified"]}'
 ```
 
 预期：
@@ -444,7 +444,7 @@ curl -X POST http://127.0.0.1:8000/api/inspection/monitor/start \
     "timeout_sec": 10,
     "robot_code": "robot_001",
     "camera_code": "usb_cam",
-    "enabled_models": ["puddle", "fod"]
+    "enabled_models": ["unified"]
   }'
 
 watch -n 1 'curl -s http://127.0.0.1:8000/api/inspection/monitor/status'

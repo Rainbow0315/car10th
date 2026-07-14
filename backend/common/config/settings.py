@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     capture_img_dir: str = "./capture_img"
     cors_origins: List[str] = ["*"]
     default_robot_code: str = "robot_001"
-    default_enabled_models: List[str] = ["crack", "puddle", "fod"]
+    default_enabled_models: List[str] = ["unified"]
     detection_conf: float = 0.25
     detection_iou: float = 0.45
     inference_device: str = "cuda"
@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     model_crack: str = str(BASE_DIR / "apps/ai_service/weights/crack_detect.pt")
     model_puddle: str = str(BASE_DIR / "apps/ai_service/weights/puddle_detect.pt")
     model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
+    model_unified: str = str(BASE_DIR / "apps/ai_service/weights/road_inspection_6class.pt")
     inspection_monitor_topic: str = "/image_raw"
     inspection_monitor_interval_sec: float = 1.0
     inspection_monitor_timeout_sec: float = 5.0

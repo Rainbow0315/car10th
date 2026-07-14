@@ -257,7 +257,7 @@ docker exec ros_x3_fixed bash -lc '
 curl -sS --max-time 300 \
   -X POST http://127.0.0.1:8002/api/inspection/detect-ros-image \
   -H "Content-Type: application/json" \
-  -d "{\"topic_name\":\"/image_raw\",\"timeout_sec\":10,\"enabled_models\":[\"puddle\",\"fod\"]}"
+  -d "{\"topic_name\":\"/image_raw\",\"timeout_sec\":10,\"enabled_models\":[\"unified\"]}"
 '
 ```
 
@@ -415,7 +415,7 @@ curl -X POST http://127.0.0.1:8000/api/inspection/monitor/start \
     "timeout_sec": 10,
     "robot_code": "robot_001",
     "camera_code": "usb_cam",
-    "enabled_models": ["crack", "puddle", "fod"]
+    "enabled_models": ["unified"]
   }'
 ```
 
@@ -442,7 +442,7 @@ curl -X POST http://127.0.0.1:8000/api/inspection/monitor/inspect-once \
     "timeout_sec": 10,
     "robot_code": "robot_001",
     "camera_code": "usb_cam",
-    "enabled_models": ["crack", "puddle", "fod"]
+    "enabled_models": ["unified"]
   }'
 ```
 

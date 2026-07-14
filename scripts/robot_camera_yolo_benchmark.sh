@@ -71,7 +71,7 @@ curl -sS -X POST "$WEB_API_URL/api/inspection/monitor/start" \
     \"timeout_sec\": 10,
     \"robot_code\": \"robot_001\",
     \"camera_code\": \"usb_cam\",
-    \"enabled_models\": [\"puddle\", \"fod\"]
+    \"enabled_models\": [\"unified\"]
   }" | tee "$RESULT_DIR/monitor_start.json"
 echo
 

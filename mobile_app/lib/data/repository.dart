@@ -52,7 +52,7 @@ abstract class Repository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   });
   Future<InspectionMonitorStatus> stopInspectionMonitor({
@@ -675,7 +675,7 @@ class CloudRepository extends TcpCarRepository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   }) async {
     final json = await _postJson(
@@ -1366,7 +1366,7 @@ class MockRepository implements Repository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   }) async {
     _monitorRunning = true;

@@ -2,6 +2,10 @@ Place private model weights in this directory.
 
 Expected default filenames:
 
+- `road_inspection_6class.pt` (current patrol model: road defect / water / foreign object classes)
+
+Legacy split-model filenames:
+
 - `crack_detect.pt`
 - `puddle_detect.pt`
 - `fod_detect.pt`

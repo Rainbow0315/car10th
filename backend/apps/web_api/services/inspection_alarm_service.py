@@ -218,12 +218,21 @@ class InspectionAlarmService:
 
     def _alarm_type(self, *, model_name: str, label: str) -> AlarmType:
         value = f"{model_name} {label}".lower()
-        if "crack" in value:
+        if "crack" in value or "裂缝" in value or "破损" in value:
             return AlarmType.crack
-        if "puddle" in value or "water" in value:
+        if "puddle" in value or "water" in value or "积水" in value or "水洼" in value:
             return AlarmType.water
-        if "fod" in value or "foreign" in value or "debris" in value:
+        if (
+            "fod" in value
+            or "foreign" in value
+            or "debris" in value
+            or "异物" in value
+            or "障碍" in value
+            or "垃圾" in value
+        ):
             return AlarmType.foreign_object
+        if "pothole" in value or "坑" in value:
+            return AlarmType.pothole
         return AlarmType.other
 
     def _risk_level(self, *, confidence: float, detection: Dict[str, Any]) -> RiskLevel:

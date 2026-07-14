@@ -68,7 +68,7 @@ if ($StartYolo) {
         timeout_sec = 10
         robot_code = "robot_001"
         camera_code = "usb_cam"
-        enabled_models = @("puddle", "fod")
+        enabled_models = @("unified")
     }
 
     Invoke-JsonProbe -Method Post -Path "/api/inspection/monitor/start" -Body $body -TimeoutSec 30

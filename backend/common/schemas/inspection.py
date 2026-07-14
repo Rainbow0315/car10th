@@ -33,8 +33,8 @@ class ImageInspectionRequest(BaseModel):
     robot_code: str = Field("robot_001", description="机器人编码")
     camera_code: Optional[str] = Field(None, description="摄像头编码")
     enabled_models: List[str] = Field(
-        default_factory=lambda: ["crack", "puddle", "fod"],
-        description="可选：crack / puddle / fod",
+        default_factory=lambda: ["unified"],
+        description="Patrol detection model. Use unified; legacy crack / puddle / fod requests are folded into unified.",
     )
     save_annotated: bool = Field(True, description="是否保存标注图")
     output_dir: Optional[str] = Field(None, description="可选：输出目录，未填时写入默认 runtime 目录")
@@ -58,8 +58,8 @@ class InspectionMonitorStartRequest(BaseModel):
     robot_code: str = Field("robot_001", description="Robot code")
     camera_code: Optional[str] = Field("usb_cam", description="Camera code")
     enabled_models: List[str] = Field(
-        default_factory=lambda: ["crack", "puddle", "fod"],
-        description="crack / puddle / fod",
+        default_factory=lambda: ["unified"],
+        description="Patrol detection model. Use unified; legacy crack / puddle / fod requests are folded into unified.",
     )
     output_dir: Optional[str] = Field(None, description="Risk frame output directory")
 
@@ -123,12 +123,12 @@ class AlarmHandleRequest(BaseModel):
 
 
 class RosTopicInspectionRequest(BaseModel):
-    topic_name: str = Field("/camera/color/image_raw", description="ROS 图像 topic")
+    topic_name: str = Field("/image_raw", description="ROS image topic")
     robot_code: str = Field("robot_001", description="机器人编码")
     camera_code: Optional[str] = Field(None, description="摄像头编码")
     enabled_models: List[str] = Field(
-        default_factory=lambda: ["crack", "puddle", "fod"],
-        description="可选：crack / puddle / fod",
+        default_factory=lambda: ["unified"],
+        description="Patrol detection model. Use unified; legacy crack / puddle / fod requests are folded into unified.",
     )
     timeout_sec: float = Field(5.0, ge=0.5, le=30.0, description="等待图像帧的最长秒数")
     output_dir: Optional[str] = Field(None, description="可选：抓帧输出目录，未填时写入默认 runtime 目录")
@@ -142,8 +142,8 @@ class SourceInspectionRequest(BaseModel):
     robot_code: str = Field("robot_001", description="机器人编码")
     camera_code: Optional[str] = Field(None, description="摄像头编码")
     enabled_models: List[str] = Field(
-        default_factory=lambda: ["crack", "puddle", "fod"],
-        description="可选：crack / puddle / fod",
+        default_factory=lambda: ["unified"],
+        description="Patrol detection model. Use unified; legacy crack / puddle / fod requests are folded into unified.",
     )
     frame_index: int = Field(0, ge=0, description="视频文件抓帧索引，仅对本地视频生效")
     warmup_frames: int = Field(5, ge=0, le=60, description="流输入预热读取帧数")

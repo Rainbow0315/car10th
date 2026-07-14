@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import gc
 from typing import Any, Dict, List
 
 from .base import BaseDetector
 
 
 class CrackDetector(BaseDetector):
-    def __init__(self, *, conf: float, iou: float, device: str) -> None:
+    def __init__(
+        self,
+        *,
+        conf: float,
+        iou: float,
+        device: str,
+        model_tag: str = "crack",
+    ) -> None:
         super().__init__(conf=conf, iou=iou, device=device)
+        self.model_tag = model_tag
         self.model = None
 
     def load_model(self, weight_path: str) -> None:
@@ -17,6 +26,17 @@ class CrackDetector(BaseDetector):
             raise RuntimeError("缺少 ultralytics，请先安装依赖后再加载裂缝检测模型") from exc
 
         self.model = YOLO(weight_path)
+
+    def unload(self) -> None:
+        self.model = None
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     def detect(self, image_path: str) -> List[Dict[str, Any]]:
         if self.model is None:
@@ -33,7 +53,7 @@ class CrackDetector(BaseDetector):
                         "label": label,
                         "confidence": float(box.conf[0]),
                         "bbox": [float(v) for v in box.xyxy[0].tolist()],
-                        "extra": {"class_id": cls_index, "model": "crack"},
+                        "extra": {"class_id": cls_index, "model": self.model_tag},
                     }
                 )
         return detections
