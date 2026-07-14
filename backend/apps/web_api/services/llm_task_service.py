@@ -36,6 +36,7 @@ from common.schemas.llm import (
 
 FULL_TURN_DURATION_SEC = 7.0
 MOTION_STEP_SETTLE_SEC = 0.15
+DIRECT_ROS_TOOLS = {"fleet.motion", "fleet.nudge_forward", "fleet.safety_stop"}
 
 
 class LlmTaskService:
@@ -179,7 +180,6 @@ class LlmTaskService:
             return self._execute_ros_stop(robot_codes)
         if step.tool == "fleet.motion":
             robot_codes = self._motion_robot_codes(step.arguments)
-            self._ensure_ready(robot_codes)
             action = str(step.arguments.get("action") or "").strip().lower()
             motion = self._motion_for_action(action)
             duration = self._float_in_range(
@@ -204,7 +204,6 @@ class LlmTaskService:
             )
         if step.tool == "fleet.nudge_forward":
             robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
-            self._ensure_ready([robot_code])
             duration = self._float_in_range(
                 step.arguments.get("duration_seconds") or step.arguments.get("duration"),
                 1.0,
@@ -1413,7 +1412,36 @@ class LlmTaskService:
         return self._normalize_robot_codes(codes) or ["robot_001"]
 
     def _robot_codes_from_text(self, text: str) -> list[str]:
-        return self._normalize_robot_codes(match.group(0) for match in re.finditer(r"robot[_-]?\d+", text, flags=re.IGNORECASE))
+        codes = [match.group(0) for match in re.finditer(r"robot[_-]?\d+", text, flags=re.IGNORECASE)]
+        chinese_digits = "一二两三四五六七八九十"
+        patterns = [
+            rf"(?:小车|车|机器人)\s*([0-9]+|[{chinese_digits}])\s*号?",
+            rf"([0-9]+|[{chinese_digits}])\s*号?\s*(?:小车|车|机器人)",
+        ]
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                number = self._robot_number_from_text(match.group(1))
+                if number is not None:
+                    codes.append(f"robot_{number:03d}")
+        return self._normalize_robot_codes(codes)
+
+    def _robot_number_from_text(self, value: str) -> Optional[int]:
+        item = str(value).strip()
+        if item.isdigit():
+            return int(item)
+        return {
+            "一": 1,
+            "二": 2,
+            "两": 2,
+            "三": 3,
+            "四": 4,
+            "五": 5,
+            "六": 6,
+            "七": 7,
+            "八": 8,
+            "九": 9,
+            "十": 10,
+        }.get(item)
 
     def _mentions_all_robots(self, text: str) -> bool:
         normalized = text.strip().lower()
@@ -1494,7 +1522,7 @@ class LlmTaskService:
         for tool in self._tools.values():
             available = True
             unavailable_reason = None
-            if tool.safety_level != "read_only" and not mqtt_connected:
+            if tool.safety_level != "read_only" and tool.name not in DIRECT_ROS_TOOLS and not mqtt_connected:
                 available = False
                 unavailable_reason = "MQTT broker is not connected"
             elif tool.readiness_required and not readiness.all_ready:
@@ -1601,18 +1629,16 @@ class LlmTaskService:
                 command_name="cmd_vel",
                 required_arguments=["action"],
                 safety_level="motion_command",
-                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(
                 name="fleet.nudge_forward",
                 title="安全短距离前进",
                 description="向指定小车下发 nudge_forward，直线前进；可选 duration_seconds，按用户要求的秒数下发。",
-                backend_route="MQTT fleet/command/{robot_code}",
+                backend_route="POST /api/fleet/teleop/cmd-vel",
                 command_name="nudge_forward",
                 required_arguments=["robot_code"],
                 safety_level="motion_command",
-                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(
@@ -1753,7 +1779,10 @@ class LlmTaskService:
 
     def _first_robot_code(self, text: str) -> Optional[str]:
         match = re.search(r"robot[_-]?\d+", text, flags=re.IGNORECASE)
-        return self._normalize_robot_code(match.group(0)) if match else None
+        if match:
+            return self._normalize_robot_code(match.group(0))
+        codes = self._robot_codes_from_text(text)
+        return codes[0] if codes else None
 
     def _plate_number(self, text: str) -> Optional[str]:
         match = re.search(r"[\u4e00-\u9fa5][A-Z][A-Z0-9]{5,6}", text.upper())

@@ -247,6 +247,22 @@ async def run_tests() -> None:
         assert plan.steps[0].arguments["action"] == expected_action, plan.steps[0].arguments
         assert plan.steps[0].arguments["duration_seconds"] == expected_duration, plan.steps[0].arguments
 
+    chinese_robot_alias_cases = [
+        ("让小车1前进2s", "robot_001", "forward", 2.0),
+        ("让小车2前进3s", "robot_002", "forward", 3.0),
+        ("让二号车后退1s", "robot_002", "backward", 1.0),
+        ("2号小车右转1s", "robot_002", "rotate_right", 1.0),
+    ]
+    for message, expected_robot, expected_action, expected_duration in chinese_robot_alias_cases:
+        plan = await service.plan(
+            LlmTaskPlanRequest(message=message, allow_llm=False),
+        )
+        assert plan.source == "rule_fallback", message
+        assert plan.steps[0].tool == "fleet.motion", (message, plan.steps[0].tool)
+        assert plan.steps[0].arguments["robot_code"] == expected_robot, plan.steps[0].arguments
+        assert plan.steps[0].arguments["action"] == expected_action, plan.steps[0].arguments
+        assert plan.steps[0].arguments["duration_seconds"] == expected_duration, plan.steps[0].arguments
+
     fallback_sequence = await service.plan(
         LlmTaskPlanRequest(message="让 robot_001 先前进 3 秒，再向右走 3 秒", allow_llm=False),
     )
@@ -329,6 +345,21 @@ async def run_tests() -> None:
     assert [step.arguments["action"] for step in fallback_dual_sequence.steps] == ["forward", "backward"]
     assert [step.arguments["duration_seconds"] for step in fallback_dual_sequence.steps] == [3.0, 3.0]
 
+    fallback_two_car_sequence = await service.plan(
+        LlmTaskPlanRequest(
+            message="让两个小车先前进2s再后退2s",
+            robot_codes=["robot_001", "robot_002"],
+            allow_llm=False,
+        ),
+    )
+    assert fallback_two_car_sequence.source == "rule_fallback"
+    assert [step.arguments["robot_codes"] for step in fallback_two_car_sequence.steps] == [
+        ["robot_001", "robot_002"],
+        ["robot_001", "robot_002"],
+    ]
+    assert [step.arguments["action"] for step in fallback_two_car_sequence.steps] == ["forward", "backward"]
+    assert [step.arguments["duration_seconds"] for step in fallback_two_car_sequence.steps] == [2.0, 2.0]
+
     tools = service.list_tools(["robot_001"]).tools
     safety_stop = next(tool for tool in tools if tool.name == "fleet.safety_stop")
     motion = next(tool for tool in tools if tool.name == "fleet.motion")
@@ -342,11 +373,11 @@ async def run_tests() -> None:
     assert safety_stop.command_name == "stop"
     assert safety_stop.available is True
     assert motion.command_name == "cmd_vel"
-    assert motion.available is False
-    assert motion.unavailable_reason == "not all target robots are ready"
+    assert motion.available is True
+    assert motion.unavailable_reason is None
     assert nudge_forward.command_name == "nudge_forward"
-    assert nudge_forward.available is False
-    assert nudge_forward.unavailable_reason == "not all target robots are ready"
+    assert nudge_forward.available is True
+    assert nudge_forward.unavailable_reason is None
     assert corridor_crawl.command_name == "corridor_crawl"
     assert corridor_crawl.available is False
     assert corridor_crawl.unavailable_reason == "not all target robots are ready"
@@ -464,7 +495,7 @@ async def run_tests() -> None:
     assert two_robot_motion_steps[0].arguments["duration_seconds"] == 2.0
 
     original_ensure_ready = service._ensure_ready
-    service._ensure_ready = lambda robot_codes: None  # type: ignore[method-assign]
+    service._ensure_ready = lambda robot_codes: (_ for _ in ()).throw(AssertionError("fleet.motion should not require fleet readiness"))  # type: ignore[method-assign]
     try:
         two_robot_result = service._execute_step(two_robot_motion_steps[0])
     finally:
@@ -494,7 +525,7 @@ async def run_tests() -> None:
         request=LlmTaskPlanRequest(message="robot_001 左转一圈", allow_llm=True),
     )
     original_ensure_ready = service._ensure_ready
-    service._ensure_ready = lambda robot_codes: None  # type: ignore[method-assign]
+    service._ensure_ready = lambda robot_codes: (_ for _ in ()).throw(AssertionError("fleet.motion should not require fleet readiness"))  # type: ignore[method-assign]
     try:
         rotate_angle_result = service._execute_step(rotate_angle_steps[0])
     finally:
