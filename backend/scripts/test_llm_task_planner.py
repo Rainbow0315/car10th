@@ -78,7 +78,7 @@ def install_lightweight_stubs() -> None:
         llm_api_key="secret-key-for-test",
         llm_api_base="",
         llm_model="gpt-5.4-mini",
-        llm_planner_timeout_sec=8.0,
+        llm_planner_timeout_sec=12.0,
         fleet_robot_offline_sec=10,
         fleet_command_ack_timeout_sec=5,
     )
@@ -154,6 +154,27 @@ async def run_tests() -> None:
         assert plan.steps[0].arguments["action"] == expected_action, plan.steps[0].arguments
         assert plan.steps[0].arguments["duration_seconds"] == expected_duration, plan.steps[0].arguments
 
+    fallback_sequence = await service.plan(
+        LlmTaskPlanRequest(message="让 robot_001 先前进 3 秒，再向右走 3 秒", allow_llm=False),
+    )
+    assert fallback_sequence.source == "rule_fallback"
+    assert [step.tool for step in fallback_sequence.steps] == ["fleet.motion", "fleet.motion"]
+    assert [step.arguments["action"] for step in fallback_sequence.steps] == ["forward", "right"]
+    assert [step.arguments["duration_seconds"] for step in fallback_sequence.steps] == [3.0, 3.0]
+
+    fallback_two_robot = await service.plan(
+        LlmTaskPlanRequest(
+            message="让两辆车同时后退 1 秒",
+            robot_codes=["robot_001", "robot_002"],
+            allow_llm=False,
+        ),
+    )
+    assert fallback_two_robot.source == "rule_fallback"
+    assert len(fallback_two_robot.steps) == 1
+    assert fallback_two_robot.steps[0].arguments["robot_codes"] == ["robot_001", "robot_002"]
+    assert fallback_two_robot.steps[0].arguments["action"] == "backward"
+    assert fallback_two_robot.steps[0].arguments["duration_seconds"] == 1.0
+
     tools = service.list_tools(["robot_001"]).tools
     safety_stop = next(tool for tool in tools if tool.name == "fleet.safety_stop")
     motion = next(tool for tool in tools if tool.name == "fleet.motion")
@@ -227,6 +248,53 @@ async def run_tests() -> None:
     assert len(normalized_stop_steps) == 1
     assert normalized_stop_steps[0].tool == "fleet.safety_stop"
     assert normalized_stop_steps[0].arguments["robot_codes"] == ["robot_001"]
+
+    sequential_motion_steps = service._steps_from_llm(
+        [
+            {"tool": "fleet.motion", "arguments": {"robot_code": "robot_001", "action": "forward", "duration": "3s"}},
+            {"tool": "fleet.motion", "arguments": {"robot_code": "robot_001", "action": "move_right", "duration_seconds": "3秒"}},
+        ],
+        request=LlmTaskPlanRequest(message="robot_001 first forward 3s then right 3s", allow_llm=True),
+    )
+    assert len(sequential_motion_steps) == 2
+    assert sequential_motion_steps[0].arguments["action"] == "forward"
+    assert sequential_motion_steps[0].arguments["duration_seconds"] == 3.0
+    assert sequential_motion_steps[1].arguments["action"] == "right"
+    assert sequential_motion_steps[1].arguments["duration_seconds"] == 3.0
+
+    two_robot_motion_steps = service._steps_from_llm(
+        [
+            {
+                "tool": "fleet.motion",
+                "arguments": {
+                    "robot_codes": ["robot_001", "robot_002"],
+                    "action": "go_backward",
+                    "duration_seconds": "2s",
+                },
+            }
+        ],
+        request=LlmTaskPlanRequest(
+            message="robot_001 and robot_002 move backward together for 2 seconds",
+            robot_codes=["robot_001", "robot_002"],
+            allow_llm=True,
+        ),
+    )
+    assert len(two_robot_motion_steps) == 1
+    assert two_robot_motion_steps[0].arguments["robot_codes"] == ["robot_001", "robot_002"]
+    assert two_robot_motion_steps[0].arguments["robot_code"] == "robot_001"
+    assert two_robot_motion_steps[0].arguments["action"] == "backward"
+    assert two_robot_motion_steps[0].arguments["duration_seconds"] == 2.0
+
+    original_ensure_ready = service._ensure_ready
+    service._ensure_ready = lambda robot_codes: None  # type: ignore[method-assign]
+    try:
+        two_robot_result = service._execute_step(two_robot_motion_steps[0])
+    finally:
+        service._ensure_ready = original_ensure_ready  # type: ignore[method-assign]
+    assert len(two_robot_result["commands"]) == 2
+    assert [command["robot_code"] for command in two_robot_result["commands"]] == ["robot_001", "robot_002"]
+    assert all(command["command"] == "llm_motion" for command in two_robot_result["commands"])
+    assert all(command["status"] == "published" for command in two_robot_result["commands"])
 
     from apps.web_api.routers import llm as llm_router
 

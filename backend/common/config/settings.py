@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     llm_api_base: str = ""
     llm_api_key: str = ""
     llm_model: str = "gpt-5.4-mini"
-    llm_planner_timeout_sec: float = 8.0
+    llm_planner_timeout_sec: float = 12.0
 
     capture_img_dir: str = "./capture_img"
     cors_origins: List[str] = ["*"]

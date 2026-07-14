@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -51,7 +52,7 @@ class LlmTaskService:
         )
 
     async def plan(self, request: LlmTaskPlanRequest) -> LlmTaskPlanResponse:
-        robot_context = self._robot_context(request.robot_codes)
+        robot_context = self._robot_context(self._request_robot_codes(request))
         steps: list[LlmTaskPlanStep] = []
         source = "rule_fallback"
         llm_error: Optional[str] = None
@@ -116,13 +117,18 @@ class LlmTaskService:
             )
 
         updated_steps = []
-        for step in plan.steps:
+        for index, step in enumerate(plan.steps):
             if step.status != "planned":
                 updated_steps.append(step)
                 continue
             try:
                 result = self._execute_step(step)
-                updated_steps.append(step.model_copy(update={"status": "executed", "result": result, "error": None}))
+                executed_step = step.model_copy(update={"status": "executed", "result": result, "error": None})
+                updated_steps.append(executed_step)
+                if self._has_later_planned_step(plan.steps, index):
+                    delay_seconds = self._step_execution_delay_seconds(executed_step)
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
             except Exception as exc:
                 updated_steps.append(step.model_copy(update={"status": "failed", "error": str(exc)}))
         return plan.model_copy(update={"steps": updated_steps})
@@ -157,8 +163,8 @@ class LlmTaskService:
             ]
             return {"commands": commands}
         if step.tool == "fleet.motion":
-            robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
-            self._ensure_ready([robot_code])
+            robot_codes = self._motion_robot_codes(step.arguments)
+            self._ensure_ready(robot_codes)
             action = str(step.arguments.get("action") or "").strip().lower()
             motion = self._motion_for_action(action)
             duration = self._float_in_range(
@@ -168,17 +174,20 @@ class LlmTaskService:
                 30.0,
             )
             motion["duration"] = duration
-            command = self._publish_command(
-                robot_code,
-                "llm_motion",
-                {
-                    "action": action,
-                    "reason": step.arguments.get("reason") or f"LLM requested {action} motion",
-                    "source": "llm_task_planner",
-                    "motion": motion,
-                },
-            )
-            return {"command": command}
+            commands = [
+                self._publish_command(
+                    robot_code,
+                    "llm_motion",
+                    {
+                        "action": action,
+                        "reason": step.arguments.get("reason") or f"LLM requested {action} motion",
+                        "source": "llm_task_planner",
+                        "motion": dict(motion),
+                    },
+                )
+                for robot_code in robot_codes
+            ]
+            return {"command": commands[0], "commands": commands}
         if step.tool == "fleet.nudge_forward":
             robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -453,6 +462,19 @@ class LlmTaskService:
         )
         return command_item
 
+    def _has_later_planned_step(self, steps: list[LlmTaskPlanStep], current_index: int) -> bool:
+        return any(step.status == "planned" for step in steps[current_index + 1 :])
+
+    def _step_execution_delay_seconds(self, step: LlmTaskPlanStep) -> float:
+        if step.status != "executed" or step.tool != "fleet.motion":
+            return 0.0
+        return self._float_in_range(
+            step.arguments.get("duration_seconds") or step.arguments.get("duration"),
+            0.0,
+            0.0,
+            30.0,
+        )
+
     async def _plan_with_llm(
         self,
         request: LlmTaskPlanRequest,
@@ -465,10 +487,11 @@ class LlmTaskService:
             url = f"{base}/chat/completions"
         else:
             url = f"{base}/v1/chat/completions"
+        context_robot_codes = [item.robot_code for item in robot_context] or request.robot_codes
         prompt = {
             "user_message": request.message,
             "available_tools": [
-                tool.model_dump(mode="json") for tool in self._tools_with_availability(request.robot_codes)
+                tool.model_dump(mode="json") for tool in self._tools_with_availability(context_robot_codes)
             ],
             "robot_context": [item.model_dump(mode="json") for item in robot_context],
             "output_schema": {
@@ -488,8 +511,10 @@ class LlmTaskService:
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
                 "You must choose the best available tool yourself from the user's natural language.",
-                "For direct app-like single-robot motion requests, use fleet.motion.",
+                "For direct app-like robot motion requests, use fleet.motion.",
                 "fleet.motion action must be exactly one of: forward, backward, left, right, rotate_left, rotate_right.",
+                "For sequential instructions such as 'first ... then ...', return one fleet.motion step per ordered action.",
+                "For simultaneous same-action instructions involving multiple robots, return one fleet.motion step with robot_codes containing all target robots.",
                 "If the user asks a robot to move/go/run without a direction, choose fleet.motion with action forward.",
                 "Preserve the user's requested duration as numeric duration_seconds. If the user says 1s use 1, if 3秒 use 3.",
                 "If the robot is omitted, use the requested robot context or the ready robot in robot_context.",
@@ -544,6 +569,40 @@ class LlmTaskService:
                         {
                             "tool": "fleet.safety_stop",
                             "arguments": {"robot_codes": ["robot_001"]},
+                        }
+                    ],
+                },
+                {
+                    "user": "robot_001 first move forward for 3 seconds, then move right for 3 seconds",
+                    "steps": [
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_code": "robot_001",
+                                "action": "forward",
+                                "duration_seconds": 3,
+                            },
+                        },
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_code": "robot_001",
+                                "action": "right",
+                                "duration_seconds": 3,
+                            },
+                        },
+                    ],
+                },
+                {
+                    "user": "robot_001 and robot_002 move forward together for 2 seconds",
+                    "steps": [
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_codes": ["robot_001", "robot_002"],
+                                "action": "forward",
+                                "duration_seconds": 2,
+                            },
                         }
                     ],
                 },
@@ -619,11 +678,19 @@ class LlmTaskService:
         fallback_robot = self._fallback_robot_code_for_llm(request)
 
         if spec.name == "fleet.motion":
+            robot_codes = self._string_list(
+                normalized.get("robot_codes") or normalized.get("robots") or normalized.get("robot_ids")
+            )
             robot_code = normalized.get("robot_code") or normalized.get("robot") or normalized.get("robot_id")
-            if not robot_code and fallback_robot:
-                normalized["robot_code"] = fallback_robot
-            elif robot_code:
-                normalized["robot_code"] = str(robot_code).strip()
+            if robot_code:
+                robot_codes = robot_codes or [str(robot_code).strip()]
+            if not robot_codes and request is not None:
+                robot_codes = self._request_robot_codes(request)
+            if not robot_codes and fallback_robot:
+                robot_codes = [fallback_robot]
+            if robot_codes:
+                normalized["robot_codes"] = robot_codes
+                normalized["robot_code"] = robot_codes[0]
 
             action = self._normalize_motion_action(normalized.get("action") or normalized.get("direction"))
             if not action and request is not None:
@@ -684,15 +751,9 @@ class LlmTaskService:
             robot_codes = request.robot_codes if request.robot_codes else [robot_code]
             return [self._step(1, "fleet.formation", {"robot_codes": robot_codes, "formation_type": "line"})]
 
-        direct_motion = self._direct_motion_arguments(text, robot_code)
-        if direct_motion is not None:
-            return [
-                self._step(
-                    1,
-                    "fleet.motion",
-                    direct_motion,
-                )
-            ]
+        direct_motion_steps = self._direct_motion_steps_from_text(text, request)
+        if direct_motion_steps:
+            return direct_motion_steps
 
         if any(keyword in text for keyword in ["急停", "停止", "stop", "刹车"]):
             return [
@@ -752,10 +813,53 @@ class LlmTaskService:
             "reason": f"LLM parsed from: {text[:80]}",
         }
 
+    def _direct_motion_steps_from_text(
+        self,
+        text: str,
+        request: LlmTaskPlanRequest,
+    ) -> list[LlmTaskPlanStep]:
+        robot_codes = self._request_robot_codes(request)
+        clauses = self._motion_clauses(text)
+        steps = []
+        for clause in clauses:
+            action = self._motion_action_from_text(clause.strip().lower())
+            if action is None:
+                continue
+            arguments: Dict[str, Any] = {
+                "action": action,
+                "duration_seconds": self._duration_seconds(clause),
+                "reason": f"LLM parsed from: {text[:80]}",
+            }
+            if len(robot_codes) > 1:
+                arguments["robot_codes"] = robot_codes
+                arguments["robot_code"] = robot_codes[0]
+            else:
+                arguments["robot_code"] = robot_codes[0]
+            steps.append(self._step(len(steps) + 1, "fleet.motion", arguments))
+        return steps
+
+    def _motion_clauses(self, text: str) -> list[str]:
+        normalized = re.sub(r"\bfirst\b", "", text, flags=re.IGNORECASE)
+        normalized = normalized.replace("先", "")
+        clauses = re.split(r"(?:然后|接着|之后|随后|再|then|after that|next|[,，;；])", normalized, flags=re.IGNORECASE)
+        return [clause.strip() for clause in clauses if clause.strip()]
+
     def _motion_action_from_text(self, normalized: str) -> Optional[str]:
         stop_words = ["stop", "halt", "brake", "停止", "停车", "刹车", "急停"]
         if any(word in normalized for word in stop_words):
             return None
+
+        unicode_checks = [
+            ("rotate_left", ["rotate left", "turn left", "spin left", "\u5de6\u8f6c", "\u5411\u5de6\u8f6c", "\u9006\u65f6\u9488"]),
+            ("rotate_right", ["rotate right", "turn right", "spin right", "\u53f3\u8f6c", "\u5411\u53f3\u8f6c", "\u987a\u65f6\u9488"]),
+            ("backward", ["move backward", "backward", "reverse", "back up", "\u540e\u9000", "\u5012\u8f66", "\u5411\u540e", "\u5f80\u540e", "\u5f80\u540e\u8d70", "\u5411\u540e\u8d70"]),
+            ("left", ["move left", "strafe left", "shift left", "\u5411\u5de6\u79fb\u52a8", "\u5de6\u79fb", "\u5f80\u5de6", "\u5411\u5de6\u5e73\u79fb", "\u5411\u5de6\u8d70", "\u5f80\u5de6\u8d70"]),
+            ("right", ["move right", "strafe right", "shift right", "\u5411\u53f3\u79fb\u52a8", "\u53f3\u79fb", "\u5f80\u53f3", "\u5411\u53f3\u5e73\u79fb", "\u5411\u53f3\u8d70", "\u5f80\u53f3\u8d70"]),
+            ("forward", ["move forward", "forward", "go forward", "\u524d\u8fdb", "\u5411\u524d", "\u5f80\u524d", "\u5f80\u524d\u8d70", "\u5411\u524d\u8d70"]),
+        ]
+        for action, keywords in unicode_checks:
+            if any(keyword in normalized for keyword in keywords):
+                return action
 
         checks = [
             ("rotate_left", ["rotate left", "turn left", "spin left", "左转", "向左转", "逆时针"]),
@@ -809,6 +913,64 @@ class LlmTaskService:
             for member in readiness.members
         ]
 
+    def _request_robot_codes(self, request: LlmTaskPlanRequest) -> list[str]:
+        codes = []
+        if self._mentions_all_robots(request.message):
+            codes.extend(self._all_online_robot_codes())
+        codes.extend(self._robot_codes_from_text(request.message))
+        codes.extend(code.strip() for code in request.robot_codes if code.strip())
+        return self._dedupe_strings(codes) or ["robot_001"]
+
+    def _motion_robot_codes(self, arguments: Dict[str, Any]) -> list[str]:
+        codes = self._string_list(arguments.get("robot_codes") or arguments.get("robots") or arguments.get("robot_ids"))
+        if not codes:
+            codes = self._string_list(arguments.get("robot_code") or arguments.get("robot") or arguments.get("robot_id"))
+        return self._dedupe_strings(codes) or ["robot_001"]
+
+    def _robot_codes_from_text(self, text: str) -> list[str]:
+        return self._dedupe_strings(
+            match.group(0).replace("-", "_").lower()
+            for match in re.finditer(r"robot[_-]\d+", text, flags=re.IGNORECASE)
+        )
+
+    def _mentions_all_robots(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        keywords = [
+            "两辆车",
+            "两个车",
+            "两台车",
+            "两辆小车",
+            "两个小车",
+            "两台小车",
+            "全部车",
+            "所有车",
+            "所有小车",
+            "both robots",
+            "two robots",
+            "all robots",
+        ]
+        return any(keyword in normalized for keyword in keywords)
+
+    def _all_online_robot_codes(self) -> list[str]:
+        codes = [
+            str(item.get("robot_code") or "").strip()
+            for item in fleet_service.list_robots()
+            if item.get("status") == "online" and str(item.get("robot_code") or "").strip()
+        ]
+        codes.sort()
+        return self._dedupe_strings(codes)
+
+    def _dedupe_strings(self, values: Any) -> list[str]:
+        seen = set()
+        result = []
+        for value in values:
+            item = str(value).strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            result.append(item)
+        return result
+
     def _ensure_ready(self, robot_codes: list[str]) -> None:
         readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes))
         if not readiness.all_ready:
@@ -860,6 +1022,10 @@ class LlmTaskService:
         missing = []
         for name in spec.required_arguments:
             value = arguments.get(name)
+            if spec.name == "fleet.motion" and name == "robot_code":
+                if not self._motion_robot_codes(arguments):
+                    missing.append(name)
+                continue
             if name == "robot_codes":
                 if not self._string_list(value):
                     missing.append(name)
@@ -929,7 +1095,7 @@ class LlmTaskService:
                 description="模仿 App 单车控制按钮，只允许 forward/backward/left/right/rotate_left/rotate_right 六种动作；可选 duration_seconds，按用户要求的秒数下发。",
                 backend_route="MQTT fleet/command/{robot_code}",
                 command_name="llm_motion",
-                required_arguments=["robot_code", "action"],
+                required_arguments=["action"],
                 safety_level="motion_command",
                 readiness_required=True,
                 requires_confirmation=True,
