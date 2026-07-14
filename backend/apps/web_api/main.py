@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,16 +10,27 @@ from apps.web_api.services.mqtt_service import mqtt_service
 from apps.web_api.services.patrol_service import patrol_service
 from common.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    mqtt_service.start()
-    await mqtt_service.start_heartbeat()
-    patrol_service.start_scheduler()
+    mqtt_started = False
+    try:
+        mqtt_service.start()
+        await mqtt_service.start_heartbeat()
+        mqtt_started = True
+    except Exception:
+        logger.exception("MQTT service failed during startup; continuing with HTTP APIs")
+    try:
+        patrol_service.start_scheduler()
+    except Exception:
+        logger.exception("Patrol scheduler failed during startup; continuing with HTTP APIs")
     yield
     patrol_service.shutdown_scheduler()
     await inspection_monitor_service.shutdown()
-    await mqtt_service.stop()
+    if mqtt_started:
+        await mqtt_service.stop()
 
 
 app = FastAPI(
