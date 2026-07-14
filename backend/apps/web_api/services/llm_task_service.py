@@ -154,6 +154,12 @@ class LlmTaskService:
         if step.tool == "fleet.nudge_forward":
             robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
+            duration = self._float_in_range(
+                step.arguments.get("duration_seconds") or step.arguments.get("duration"),
+                1.0,
+                0.2,
+                2.0,
+            )
             command = self._publish_command(
                 robot_code,
                 "nudge_forward",
@@ -161,10 +167,10 @@ class LlmTaskService:
                     "reason": step.arguments.get("reason") or "LLM requested a brief forward movement",
                     "source": "llm_task_planner",
                     "motion": {
-                        "linear_x": 0.05,
+                        "linear_x": 0.18,
                         "linear_y": 0.0,
                         "angular_z": 0.0,
-                        "duration": 0.8,
+                        "duration": duration,
                         "rate_hz": 10.0,
                     },
                 },
@@ -419,7 +425,7 @@ class LlmTaskService:
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
-                "For a brief forward movement request, use fleet.nudge_forward.",
+                "For a brief forward movement request, use fleet.nudge_forward with optional duration_seconds capped at 2.0.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
@@ -480,7 +486,8 @@ class LlmTaskService:
 
     def _plan_with_rules(self, request: LlmTaskPlanRequest) -> list[LlmTaskPlanStep]:
         text = request.message.strip()
-        robot_code = self._first_robot_code(text) or (request.robot_codes[0] if request.robot_codes else "robot_001")
+        explicit_robot_code = self._first_robot_code(text)
+        robot_code = explicit_robot_code or self._best_ready_robot_code(request.robot_codes)
         plate_number = self._plate_number(text)
         zone_id = self._zone_id(text)
 
@@ -513,11 +520,16 @@ class LlmTaskService:
             return [self._step(1, "fleet.formation", {"robot_codes": robot_codes, "formation_type": "line"})]
 
         if any(keyword in text for keyword in ["前进", "向前", "往前", "forward", "move forward"]):
+            duration = self._duration_seconds(text)
             return [
                 self._step(
                     1,
                     "fleet.nudge_forward",
-                    {"robot_code": robot_code, "reason": f"LLM parsed from: {text[:80]}"},
+                    {
+                        "robot_code": robot_code,
+                        "duration_seconds": duration,
+                        "reason": f"LLM parsed from: {text[:80]}",
+                    },
                 )
             ]
 
@@ -592,6 +604,25 @@ class LlmTaskService:
         readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes))
         if not readiness.all_ready:
             raise ValueError("robot is not ready for LLM planned command")
+
+    def _best_ready_robot_code(self, requested_robot_codes: list[str]) -> str:
+        requested = [code.strip() for code in requested_robot_codes if code.strip()]
+        readiness = FleetReadinessResponse.model_validate(
+            fleet_service.check_readiness(requested or ["robot_001"])
+        )
+        for member in readiness.members:
+            if member.ready_to_command:
+                return member.robot_code
+
+        online_robots = [
+            str(item.get("robot_code") or "").strip()
+            for item in fleet_service.list_robots()
+            if item.get("status") == "online" and str(item.get("robot_code") or "").strip()
+        ]
+        if online_robots:
+            online_robots.sort()
+            return online_robots[0]
+        return requested[0] if requested else "robot_001"
 
     def _tools_with_availability(self, robot_codes: list[str]) -> list[LlmToolSpec]:
         readiness = FleetReadinessResponse.model_validate(fleet_service.check_readiness(robot_codes or ["robot_001"]))
@@ -686,7 +717,7 @@ class LlmTaskService:
             LlmToolSpec(
                 name="fleet.nudge_forward",
                 title="安全短距离前进",
-                description="向指定小车下发 nudge_forward，只允许低速、短时、直线前进。",
+                description="向指定小车下发 nudge_forward，只允许短时、直线前进；可选 duration_seconds，最大 2 秒。",
                 backend_route="MQTT fleet/command/{robot_code}",
                 command_name="nudge_forward",
                 required_arguments=["robot_code"],
@@ -807,6 +838,26 @@ class LlmTaskService:
         match = re.search(r"[A-Z]\d[-_A-Z0-9]*", text.upper())
         return match.group(0) if match else None
 
+    def _duration_seconds(self, text: str) -> float:
+        normalized = text.strip().lower()
+        match = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds|秒)", normalized)
+        if match:
+            return self._float_in_range(match.group(1), 1.0, 0.2, 2.0)
+
+        word_seconds = {
+            "one": 1.0,
+            "two": 2.0,
+            "three": 2.0,
+            "一": 1.0,
+            "二": 2.0,
+            "两": 2.0,
+            "三": 2.0,
+        }
+        for word, seconds in word_seconds.items():
+            if word in normalized:
+                return seconds
+        return 1.0
+
     def _string_list(self, value: Any) -> list[str]:
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
@@ -820,6 +871,14 @@ class LlmTaskService:
         if api_key:
             message = message.replace(api_key, "***")
         return message[:240]
+
+    @staticmethod
+    def _float_in_range(value: Any, fallback: float, lower: float, upper: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = fallback
+        return max(lower, min(upper, parsed))
 
     def _api_base_host(self, api_base: str) -> Optional[str]:
         if not api_base:
