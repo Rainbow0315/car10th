@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import unittest
 
 from apps.tcp_car_bridge.main import ExternalCommandError, ProtocolError, TcpCarBridge, parse_frame
@@ -18,6 +19,7 @@ class FakePublisher:
         self.light_messages = []
         self.motion_messages = []
         self.stop_count = 0
+        self.stop_delay = 0.0
         self.closed = False
 
     def publish_int32(self, topic_name: str, value: int, repeat: int = 3) -> None:
@@ -27,6 +29,8 @@ class FakePublisher:
         self.motion_messages.append(kwargs)
 
     def stop(self) -> None:
+        if self.stop_delay > 0:
+            time.sleep(self.stop_delay)
         self.stop_count += 1
 
     def close(self) -> None:
@@ -50,11 +54,11 @@ class FakeShow:
 
 class FakeAudio:
     def __init__(self) -> None:
-        self.played = 0
+        self.played = []
         self.stopped = 0
 
-    def play(self) -> None:
-        self.played += 1
+    def play(self, track_index: int = 0, volume_percent: int = 80) -> None:
+        self.played.append((track_index, volume_percent))
 
     def stop(self) -> None:
         self.stopped += 1
@@ -95,11 +99,19 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.assertEqual(self.show.stopped, [True])
         self.assertEqual(len(self.publisher.motion_messages), 1)
 
+    def test_stop_command_returns_without_waiting_for_ros_stop(self) -> None:
+        self.publisher.stop_delay = 0.5
+        start = time.monotonic()
+        response = self.bridge.handle_frame(frame("15", "00"))
+        elapsed = time.monotonic() - start
+        self.assertEqual(response, "OK\n")
+        self.assertLess(elapsed, 0.2)
+
     def test_audio_command_does_not_cancel_light_show(self) -> None:
         self.show.is_running = True
         response = self.bridge.handle_frame(frame("33"))
         self.assertEqual(response, "OK\n")
-        self.assertEqual(self.audio.played, 1)
+        self.assertEqual(self.audio.played, [(0, 80)])
         self.assertEqual(self.show.stopped, [])
 
     def test_tracking_start_runs_external_command(self) -> None:
@@ -123,6 +135,11 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.bridge.track_start_command = ""
         with self.assertRaisesRegex(ExternalCommandError, "tracking start command is empty"):
             self.bridge.handle_frame(frame("63"))
+
+    def test_audio_command_accepts_track_and_volume(self) -> None:
+        response = self.bridge.handle_frame(frame("33", "023C"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.audio.played, [(2, 60)])
 
 
 if __name__ == "__main__":

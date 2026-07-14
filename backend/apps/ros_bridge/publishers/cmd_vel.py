@@ -86,7 +86,7 @@ class CmdVelPublisher:
             time.sleep(max(0.01, poll_interval))
 
     def publish_once(self, linear_x: float, linear_y: float, angular_z: float, repeat: int = 5) -> None:
-        self._cancel_active_motion()
+        self._cancel_active_motion(wait=True)
         self._publish_repeated(linear_x, linear_y, angular_z, repeat=repeat)
 
     def _publish_repeated(self, linear_x: float, linear_y: float, angular_z: float, repeat: int = 5) -> None:
@@ -105,7 +105,7 @@ class CmdVelPublisher:
         duration: float,
         rate_hz: float = 10.0,
     ) -> None:
-        self._cancel_active_motion()
+        self._cancel_active_motion(wait=False)
         stop_event = threading.Event()
         worker = threading.Thread(
             target=self._run_timed_publish,
@@ -119,7 +119,7 @@ class CmdVelPublisher:
         worker.start()
 
     def stop(self) -> None:
-        self._cancel_active_motion()
+        self._cancel_active_motion(wait=False)
         self._publish_repeated(0.0, 0.0, 0.0, repeat=3)
 
     def publish_int32(
@@ -151,7 +151,7 @@ class CmdVelPublisher:
                 time.sleep(0.03)
 
     def close(self) -> None:
-        active_thread = self._cancel_active_motion()
+        active_thread = self._cancel_active_motion(wait=True)
         with self._lock:
             if self._closed:
                 return
@@ -198,7 +198,7 @@ class CmdVelPublisher:
         if self._closed:
             raise RuntimeError("cmd_vel publisher has already been closed")
 
-    def _cancel_active_motion(self) -> Optional[threading.Thread]:
+    def _cancel_active_motion(self, *, wait: bool = True) -> Optional[threading.Thread]:
         with self._lock:
             stop_event = self._active_stop_event
             active_thread = self._active_thread
@@ -207,7 +207,7 @@ class CmdVelPublisher:
             if stop_event is not None:
                 stop_event.set()
 
-        if active_thread is not None and active_thread is not threading.current_thread():
+        if wait and active_thread is not None and active_thread is not threading.current_thread():
             active_thread.join(timeout=1.0)
         return active_thread
 

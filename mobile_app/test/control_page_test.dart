@@ -29,9 +29,35 @@ void main() {
     expect(find.text('拍照'), findsNothing);
     expect(find.text('开始录像'), findsNothing);
     expect(find.text('多车协同'), findsNothing);
-    expect(find.text('灯光'), findsOneWidget);
-    expect(find.text('关灯'), findsOneWidget);
-    expect(find.text('音频'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('灯光控制'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('灯光控制'), findsOneWidget);
+    expect(find.text('关闭'), findsOneWidget);
+    expect(find.text('流水'), findsOneWidget);
+    expect(find.text('跑马'), findsOneWidget);
+    expect(find.text('呼吸'), findsOneWidget);
+    expect(find.text('渐变'), findsOneWidget);
+    expect(find.text('星光'), findsOneWidget);
+    expect(find.text('开始灯光秀'), findsOneWidget);
+    expect(find.text('停止灯光秀'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('音频控制'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('音频控制'), findsOneWidget);
+    expect(find.text('选择音频'), findsOneWidget);
+    expect(find.text('前方有危险'), findsOneWidget);
+    expect(find.text('播放音频'), findsOneWidget);
   });
 
   testWidgets('switches to fleet robot selection', (tester) async {

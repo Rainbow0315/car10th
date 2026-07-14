@@ -21,6 +21,16 @@ enum RobotLightEffect {
   const RobotLightEffect(this.code);
 }
 
+enum RobotAudioClip {
+  warning(0),
+  lightShow(1),
+  systemPrompt(2);
+
+  final int code;
+
+  const RobotAudioClip(this.code);
+}
+
 abstract class Repository {
   String cameraSnapshotUrl({
     String topicName = '/image_raw',
@@ -108,7 +118,10 @@ abstract class Repository {
   Future<void> setLightEffect(RobotLightEffect effect);
   Future<void> startLightShow();
   Future<void> stopLightShow();
-  Future<void> playAudio();
+  Future<void> playAudio({
+    RobotAudioClip clip = RobotAudioClip.warning,
+    int volumePercent = 80,
+  });
   Future<void> updateWheelSpeeds({
     required double leftFront,
     required double leftRear,
@@ -133,10 +146,8 @@ class TcpCarRepository extends MockRepository {
   static const _sendTimeout = Duration(seconds: 2);
 
   final AppSettings settings;
-  Socket? _socket;
-  String? _socketHost;
-  int? _socketPort;
-  Future<void> _sendChain = Future.value();
+  final Map<String, Socket> _sockets = {};
+  final Map<String, Future<void>> _sendChains = {};
   bool _disposed = false;
 
   TcpCarRepository({required this.settings});
@@ -277,8 +288,16 @@ class TcpCarRepository extends MockRepository {
   }
 
   @override
-  Future<void> playAudio() async {
-    await _send(_encode('33', []));
+  Future<void> playAudio({
+    RobotAudioClip clip = RobotAudioClip.warning,
+    int volumePercent = 80,
+  }) async {
+    await _send(
+      _encode('33', [
+        _byteHex(clip.code),
+        _byteHex(volumePercent.clamp(0, 100)),
+      ]),
+    );
   }
 
   @override
@@ -306,11 +325,7 @@ class TcpCarRepository extends MockRepository {
     if (_disposed) {
       throw StateError('TCP car repository has been disposed');
     }
-    final pending = _sendChain.then(
-      (_) => _sendLocked(settings.tcpHost, settings.tcpPort, message),
-    );
-    _sendChain = pending.catchError((_) {});
-    return pending;
+    return _enqueueSend(settings.tcpHost, settings.tcpPort, message);
   }
 
   Future<void> _sendFleetRaw(List<String> robotCodes, String message) async {
@@ -318,14 +333,20 @@ class TcpCarRepository extends MockRepository {
       throw StateError('TCP car repository has been disposed');
     }
     final codes = robotCodes.isEmpty ? [settings.controlRobotCode] : robotCodes;
-    Future<void> pending = _sendChain;
-    for (final code in codes) {
-      final target = _controlTargetFor(code);
-      pending = pending.then(
-        (_) => _sendLocked(target.host, target.tcpPort, message),
-      );
-    }
-    _sendChain = pending.catchError((_) {});
+    await Future.wait<void>([
+      for (final code in codes)
+        () {
+          final target = _controlTargetFor(code);
+          return _enqueueSend(target.host, target.tcpPort, message);
+        }(),
+    ]);
+  }
+
+  Future<void> _enqueueSend(String host, int port, String message) {
+    final key = _socketKey(host, port);
+    final previous = _sendChains[key] ?? Future<void>.value();
+    final pending = previous.then((_) => _sendLocked(host, port, message));
+    _sendChains[key] = pending.catchError((_) {});
     return pending;
   }
 
@@ -335,12 +356,12 @@ class TcpCarRepository extends MockRepository {
       socket.add(ascii.encode(message));
       await socket.flush().timeout(_sendTimeout);
     } on SocketException catch (e) {
-      _dropSocket();
+      _dropSocket(host, port);
       throw StateError(
         'Cannot connect to car TCP $host:$port: ${e.message}',
       );
     } on TimeoutException {
-      _dropSocket();
+      _dropSocket(host, port);
       throw TimeoutException(
         'TCP command timed out: $host:$port',
       );
@@ -348,23 +369,19 @@ class TcpCarRepository extends MockRepository {
   }
 
   Future<Socket> _ensureSocket(String host, int port) async {
-    final current = _socket;
-    if (current != null && _socketHost == host && _socketPort == port) {
+    final key = _socketKey(host, port);
+    final current = _sockets[key];
+    if (current != null) {
       return current;
     }
 
-    _dropSocket();
     final socket = await Socket.connect(host, port, timeout: _connectTimeout);
     socket.setOption(SocketOption.tcpNoDelay, true);
-    _socket = socket;
-    _socketHost = host;
-    _socketPort = port;
+    _sockets[key] = socket;
     unawaited(
       socket.done.catchError((_) {}).whenComplete(() {
-        if (identical(_socket, socket)) {
-          _socket = null;
-          _socketHost = null;
-          _socketPort = null;
+        if (identical(_sockets[key], socket)) {
+          _sockets.remove(key);
         }
       }),
     );
@@ -400,12 +417,20 @@ class TcpCarRepository extends MockRepository {
     return linearY > 0 ? _CarDirection.left : _CarDirection.right;
   }
 
-  void _dropSocket() {
-    final socket = _socket;
-    _socket = null;
-    _socketHost = null;
-    _socketPort = null;
-    socket?.destroy();
+  String _socketKey(String host, int port) => '$host:$port';
+
+  void _dropSocket([String? host, int? port]) {
+    if (host != null && port != null) {
+      final socket = _sockets.remove(_socketKey(host, port));
+      socket?.destroy();
+      return;
+    }
+
+    final sockets = List<Socket>.from(_sockets.values);
+    _sockets.clear();
+    for (final socket in sockets) {
+      socket.destroy();
+    }
   }
 
   @override
@@ -1433,7 +1458,10 @@ class MockRepository implements Repository {
   }
 
   @override
-  Future<void> playAudio() async {
+  Future<void> playAudio({
+    RobotAudioClip clip = RobotAudioClip.warning,
+    int volumePercent = 80,
+  }) async {
     await _delay(null);
   }
 

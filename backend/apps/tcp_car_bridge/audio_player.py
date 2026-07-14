@@ -43,10 +43,12 @@ class AudioPlayer:
         with self._lock:
             return self._process is not None and self._process.poll() is None
 
-    def play(self) -> None:
-        command = self._build_command()
+    def play(self, track_index: int = 0, volume_percent: int = 80) -> None:
+        volume = max(0, min(100, volume_percent))
+        command = self._build_command(track_index=track_index, volume_percent=volume)
         with self._lock:
             self._stop_locked()
+            self._set_volume(volume)
             self._process = subprocess.Popen(
                 command,
                 stdout=subprocess.DEVNULL,
@@ -69,13 +71,13 @@ class AudioPlayer:
             process.kill()
             process.wait(timeout=1.0)
 
-    def _build_command(self) -> List[str]:
+    def _build_command(self, track_index: int, volume_percent: int) -> List[str]:
         if self._command.strip():
             return shlex.split(self._command)
 
-        audio_file = self._resolve_audio_file()
+        audio_file = self._resolve_audio_file(track_index)
         if audio_file is not None:
-            return self._file_command(audio_file)
+            return self._file_command(audio_file, volume_percent)
 
         speaker_test = shutil.which("speaker-test")
         if speaker_test is not None:
@@ -85,8 +87,10 @@ class AudioPlayer:
             "No audio command or file configured. Set TCP_CAR_AUDIO_FILE or TCP_CAR_AUDIO_COMMAND."
         )
 
-    def _resolve_audio_file(self) -> Optional[Path]:
+    def _resolve_audio_file(self, track_index: int) -> Optional[Path]:
         candidates = []
+        if 0 <= track_index < len(DEFAULT_AUDIO_FILES):
+            candidates.append(DEFAULT_AUDIO_FILES[track_index])
         if self._audio_file.strip():
             candidates.append(self._audio_file)
         candidates.extend(DEFAULT_AUDIO_FILES)
@@ -97,7 +101,7 @@ class AudioPlayer:
                 return path
         return None
 
-    def _file_command(self, audio_file: Path) -> List[str]:
+    def _file_command(self, audio_file: Path, volume_percent: int) -> List[str]:
         if self._player.strip():
             return [*shlex.split(self._player), str(audio_file)]
 
@@ -116,6 +120,16 @@ class AudioPlayer:
                         "-autoexit",
                         "-loglevel",
                         "quiet",
+                        "-af",
+                        f"volume={volume_percent / 100.0}",
+                        str(audio_file),
+                    ]
+                if Path(player).name == "mpv":
+                    return [
+                        player,
+                        "--no-video",
+                        "--really-quiet",
+                        f"--volume={volume_percent}",
                         str(audio_file),
                     ]
                 return [player, "-q", str(audio_file)]
@@ -136,8 +150,36 @@ class AudioPlayer:
                 "-autoexit",
                 "-loglevel",
                 "quiet",
+                "-af",
+                f"volume={volume_percent / 100.0}",
                 str(audio_file),
             ]
         if Path(player).name == "mpv":
-            return [player, "--no-video", "--really-quiet", str(audio_file)]
+            return [
+                player,
+                "--no-video",
+                "--really-quiet",
+                f"--volume={volume_percent}",
+                str(audio_file),
+            ]
         return [player, "-q", str(audio_file)]
+
+    def _set_volume(self, volume_percent: int) -> None:
+        amixer = shutil.which("amixer")
+        if amixer is not None:
+            subprocess.run(
+                [amixer, "sset", "Master", f"{volume_percent}%"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            return
+
+        pactl = shutil.which("pactl")
+        if pactl is not None:
+            subprocess.run(
+                [pactl, "set-sink-volume", "@DEFAULT_SINK@", f"{volume_percent}%"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )

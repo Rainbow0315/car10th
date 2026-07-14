@@ -102,6 +102,8 @@ class TcpCarBridge:
         self._tracking_process: Optional[subprocess.Popen] = None
         self.hardware: Optional[SerialCarHardware] = None
         self.headlights: Optional[HeadlightEffectController] = None
+        self._stop_thread: Optional[threading.Thread] = None
+        self._stop_lock = threading.Lock()
         if publisher is None:
             try:
                 self.hardware = SerialCarHardware(
@@ -132,7 +134,7 @@ class TcpCarBridge:
         elif command.command == "32":
             self.show.stop()
         elif command.command == "33":
-            self.audio.play()
+            self._handle_audio(command.data)
         elif command.command in {"60", "61", "62"}:
             pass
         elif command.command == "63":
@@ -153,7 +155,7 @@ class TcpCarBridge:
         angular_z = 0.0
 
         if direction == 0:
-            self.publisher.stop()
+            self._request_motion_stop()
             return
         if direction == 1:
             linear_x = self.linear_speed
@@ -168,7 +170,7 @@ class TcpCarBridge:
         elif direction == 6:
             angular_z = -self.angular_speed
         elif direction == 7:
-            self.publisher.stop()
+            self._request_motion_stop()
             return
         else:
             raise ProtocolError(f"unsupported direction: {direction}")
@@ -227,6 +229,39 @@ class TcpCarBridge:
             self.headlights.set_effect(effect)
         else:
             self._publish_ros_light_effect(effect)
+
+    def _handle_audio(self, data: str) -> None:
+        track_index = 0
+        volume_percent = 80
+        if len(data) >= 2:
+            track_index = _byte(data[0:2])
+        if len(data) >= 4:
+            volume_percent = _byte(data[2:4])
+        if volume_percent > 100:
+            raise ProtocolError(f"unsupported audio volume: {volume_percent}")
+        self.audio.play(track_index=track_index, volume_percent=volume_percent)
+
+    def _request_motion_stop(self) -> None:
+        with self._stop_lock:
+            if self._stop_thread is not None and self._stop_thread.is_alive():
+                return
+            thread = threading.Thread(
+                target=self._stop_motion_worker,
+                name="tcp-car-bridge-stop",
+                daemon=True,
+            )
+            self._stop_thread = thread
+            thread.start()
+
+    def _stop_motion_worker(self) -> None:
+        try:
+            self.publisher.stop()
+        except Exception as exc:
+            print(f"Failed to publish stop command: {exc}", flush=True)
+        finally:
+            with self._stop_lock:
+                if self._stop_thread is threading.current_thread():
+                    self._stop_thread = None
 
     def _publish_ros_light_effect(self, effect: int) -> None:
         self.publisher.publish_int32(self.light_topic, effect, repeat=3)
@@ -297,6 +332,9 @@ class TcpCarBridge:
         self.show.stop()
         if self.headlights is not None:
             self.headlights.stop()
+        stop_thread = self._stop_thread
+        if stop_thread is not None and stop_thread is not threading.current_thread():
+            stop_thread.join(timeout=1.0)
         if self.hardware is not None:
             self.hardware.close()
         self.publisher.close()
@@ -355,7 +393,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop_server)
 
     print(f"TCP car bridge listening on {host}:{port}")
-    print("Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, show stop=32, audio=33")
+    print(
+        "Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, "
+        "show stop=32, audio=33(track,volume)"
+    )
     try:
         server.serve_forever()
     finally:
