@@ -188,48 +188,26 @@ class _MapPageState extends State<MapPage> {
             scheduleCron: draft.scheduleCron,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存巡航任务：${draft.name}')),
-      );
-      setState(() => _savingPatrol = false);
-      final startNow = await _confirmStartPatrolNow(task.name);
-      if (!mounted || startNow != true) return;
-      setState(() {
-        _savingPatrol = true;
-        _error = null;
-      });
-      await context.read<Repository>().startPatrolTask(task.taskCode);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已开始巡航：${task.name}')),
-      );
+      if (draft.startAfterSave) {
+        await context.read<Repository>().startPatrolTask(task.taskCode);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已保存并开始巡航：${task.name}')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已保存巡航任务：${draft.name}')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('巡航任务处理失败：$e')),
+      );
     } finally {
       if (mounted) setState(() => _savingPatrol = false);
     }
-  }
-
-  Future<bool?> _confirmStartPatrolNow(String taskName) {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('现在巡航一次吗？'),
-        content: Text('“$taskName”已经保存好了，要现在让小车按这条路线巡航一遍吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('先不跑'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('现在巡航'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -649,11 +627,13 @@ class _PatrolSaveDraft {
   final String name;
   final int loopCount;
   final String? scheduleCron;
+  final bool startAfterSave;
 
   const _PatrolSaveDraft({
     required this.name,
     required this.loopCount,
     required this.scheduleCron,
+    required this.startAfterSave,
   });
 }
 
@@ -673,6 +653,7 @@ class _PatrolSaveDialog extends StatefulWidget {
 class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
   late final TextEditingController _name;
   late final TextEditingController _intervalMinutes;
+  late bool _startAfterSave;
   String? _error;
 
   @override
@@ -680,6 +661,7 @@ class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
     super.initState();
     _name = TextEditingController(text: widget.defaultName);
     _intervalMinutes = TextEditingController(text: '30');
+    _startAfterSave = true;
   }
 
   @override
@@ -709,6 +691,12 @@ class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
                 suffixText: '分钟',
               ),
             ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _startAfterSave,
+            onChanged: (value) => setState(() => _startAfterSave = value),
+            title: const Text('保存后立即巡航一次'),
+          ),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Align(
@@ -747,6 +735,7 @@ class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
                 name: name,
                 loopCount: 1,
                 scheduleCron: scheduleCron,
+                startAfterSave: _startAfterSave,
               ),
             );
           },
