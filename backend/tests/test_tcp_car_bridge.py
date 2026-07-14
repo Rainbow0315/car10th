@@ -4,7 +4,9 @@ import sys
 import time
 import unittest
 
+from apps.tcp_car_bridge.event_linkage import nearest_front_obstacle_distance
 from apps.tcp_car_bridge.main import ExternalCommandError, ProtocolError, TcpCarBridge, parse_frame
+from apps.tcp_car_bridge.serial_hardware import LIGHT_LEFT, LIGHT_OFF, LIGHT_ON, LIGHT_RIGHT
 
 
 def frame(command: str, data: str = "") -> str:
@@ -99,6 +101,28 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.assertEqual(self.show.stopped, [True])
         self.assertEqual(len(self.publisher.motion_messages), 1)
 
+    def test_manual_left_turn_triggers_left_light(self) -> None:
+        response = self.bridge.handle_frame(frame("15", "05"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_LEFT, 3)])
+        self.assertEqual(len(self.publisher.motion_messages), 1)
+
+    def test_manual_right_turn_triggers_right_light(self) -> None:
+        response = self.bridge.handle_frame(frame("15", "06"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_RIGHT, 3)])
+        self.assertEqual(len(self.publisher.motion_messages), 1)
+
+    def test_manual_straight_triggers_headlight(self) -> None:
+        response = self.bridge.handle_frame(frame("15", "01"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_ON, 3)])
+
+    def test_stop_turns_lights_off(self) -> None:
+        response = self.bridge.handle_frame(frame("15", "00"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_OFF, 3)])
+
     def test_stop_command_returns_without_waiting_for_ros_stop(self) -> None:
         self.publisher.stop_delay = 0.5
         start = time.monotonic()
@@ -140,6 +164,37 @@ class TcpCarBridgeTests(unittest.TestCase):
         response = self.bridge.handle_frame(frame("33", "023C"))
         self.assertEqual(response, "OK\n")
         self.assertEqual(self.audio.played, [(2, 60)])
+
+    def test_front_obstacle_warning_triggers_light_and_audio(self) -> None:
+        self.show.is_running = True
+        self.bridge._handle_front_obstacle_warning(0.35)
+        self.assertEqual(self.show.stopped, [True])
+        self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_ON, 3)])
+        self.assertEqual(self.audio.played, [(0, 100)])
+
+
+class ObstacleDistanceTests(unittest.TestCase):
+    def test_nearest_front_obstacle_uses_front_sector_only(self) -> None:
+        distance = nearest_front_obstacle_distance(
+            [0.2, 0.6, 0.4, 0.3, 0.2],
+            angle_min=-1.0,
+            angle_increment=0.5,
+            range_min=0.05,
+            range_max=5.0,
+            front_angle_deg=20,
+        )
+        self.assertEqual(distance, 0.4)
+
+    def test_nearest_front_obstacle_ignores_invalid_values(self) -> None:
+        distance = nearest_front_obstacle_distance(
+            [float("inf"), 0.01, 2.5],
+            angle_min=-0.1,
+            angle_increment=0.1,
+            range_min=0.05,
+            range_max=2.0,
+            front_angle_deg=20,
+        )
+        self.assertIsNone(distance)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,17 @@ from typing import Optional
 
 from apps.ros_bridge.publishers.cmd_vel import CmdVelPublisher, RosRuntimeUnavailableError
 from apps.tcp_car_bridge.audio_player import AudioPlayer
+from apps.tcp_car_bridge.event_linkage import (
+    ObstacleSoundLightMonitor,
+    ObstacleWarningConfig,
+)
 from apps.tcp_car_bridge.light_show import LightShow
 from apps.tcp_car_bridge.serial_hardware import (
     HeadlightEffectController,
+    LIGHT_LEFT,
+    LIGHT_OFF,
+    LIGHT_ON,
+    LIGHT_RIGHT,
     SerialCarHardware,
 )
 
@@ -33,6 +41,13 @@ class ProtocolError(ValueError):
 
 class ExternalCommandError(RuntimeError):
     pass
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def parse_frame(frame: str) -> CarCommand:
@@ -116,6 +131,9 @@ class TcpCarBridge:
                 print(f"Physical car control unavailable; using ROS fallback: {exc}", flush=True)
         self.show = LightShow(set_light_scene=self._set_show_light_scene)
         self.audio = AudioPlayer()
+        self._obstacle_monitor: Optional[ObstacleSoundLightMonitor] = None
+        if publisher is None and _env_bool("TCP_CAR_OBSTACLE_MONITOR_ENABLED", False):
+            self._start_obstacle_monitor()
 
     def handle_frame(self, frame: str) -> str:
         command = parse_frame(frame)
@@ -155,6 +173,7 @@ class TcpCarBridge:
         angular_z = 0.0
 
         if direction == 0:
+            self._set_motion_light_scene(LIGHT_OFF)
             self._request_motion_stop()
             return
         if direction == 1:
@@ -170,11 +189,13 @@ class TcpCarBridge:
         elif direction == 6:
             angular_z = -self.angular_speed
         elif direction == 7:
+            self._set_motion_light_scene(LIGHT_OFF)
             self._request_motion_stop()
             return
         else:
             raise ProtocolError(f"unsupported direction: {direction}")
 
+        self._set_light_for_direction(direction)
         self.publisher.publish_for_duration(
             linear_x=linear_x,
             linear_y=linear_y,
@@ -266,6 +287,57 @@ class TcpCarBridge:
     def _publish_ros_light_effect(self, effect: int) -> None:
         self.publisher.publish_int32(self.light_topic, effect, repeat=3)
 
+    def _start_obstacle_monitor(self) -> None:
+        config = ObstacleWarningConfig(
+            scan_topic=os.getenv("TCP_CAR_OBSTACLE_SCAN_TOPIC", "/scan"),
+            distance_m=float(os.getenv("TCP_CAR_OBSTACLE_DISTANCE_M", "0.5")),
+            clear_distance_m=float(os.getenv("TCP_CAR_OBSTACLE_CLEAR_DISTANCE_M", "0.75")),
+            front_angle_deg=float(os.getenv("TCP_CAR_OBSTACLE_FRONT_DEG", "35")),
+            cooldown_sec=float(os.getenv("TCP_CAR_OBSTACLE_COOLDOWN_SEC", "5")),
+            startup_grace_sec=float(os.getenv("TCP_CAR_OBSTACLE_STARTUP_GRACE_SEC", "8")),
+            clear_dwell_sec=float(os.getenv("TCP_CAR_OBSTACLE_CLEAR_DWELL_SEC", "2")),
+        )
+        try:
+            self._obstacle_monitor = ObstacleSoundLightMonitor(
+                on_warning=self._handle_front_obstacle_warning,
+                config=config,
+            )
+            print(
+                "Obstacle sound/light monitor enabled: "
+                f"topic={config.scan_topic}, distance={config.distance_m:.2f}m, "
+                f"clear_distance={config.clear_distance_m:.2f}m, "
+                f"front={config.front_angle_deg:.0f}deg, cooldown={config.cooldown_sec:.1f}s, "
+                f"startup_grace={config.startup_grace_sec:.1f}s, "
+                f"clear_dwell={config.clear_dwell_sec:.1f}s",
+                flush=True,
+            )
+        except RosRuntimeUnavailableError as exc:
+            print(f"Obstacle sound/light monitor unavailable: {exc}", flush=True)
+        except Exception as exc:
+            print(f"Obstacle sound/light monitor failed to start: {exc}", flush=True)
+
+    def _handle_front_obstacle_warning(self, distance_m: float) -> None:
+        print(f"Front obstacle warning triggered at {distance_m:.2f}m", flush=True)
+        self._stop_show_if_running()
+        if self.headlights is not None:
+            self.headlights.stop(turn_off=False)
+        self._set_show_light_scene(LIGHT_ON)
+        self.audio.play(track_index=0, volume_percent=100)
+
+    def _set_light_for_direction(self, direction: int) -> None:
+        if direction in {3, 5}:
+            self._set_motion_light_scene(LIGHT_LEFT)
+        elif direction in {4, 6}:
+            self._set_motion_light_scene(LIGHT_RIGHT)
+        elif direction in {1, 2}:
+            self._set_motion_light_scene(LIGHT_ON)
+
+    def _set_motion_light_scene(self, scene: int) -> None:
+        self._stop_show_if_running()
+        if self.headlights is not None:
+            self.headlights.stop(turn_off=False)
+        self._set_show_light_scene(scene)
+
     def _handle_tracking_start(self) -> None:
         self._stop_show_if_running()
         self._run_external_command("tracking pre-stop", self.track_stop_command)
@@ -328,6 +400,8 @@ class TcpCarBridge:
             self.show.stop()
 
     def close(self) -> None:
+        if self._obstacle_monitor is not None:
+            self._obstacle_monitor.close()
         self.audio.stop()
         self.show.stop()
         if self.headlights is not None:

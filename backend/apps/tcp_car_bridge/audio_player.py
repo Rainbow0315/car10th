@@ -10,7 +10,10 @@ from typing import List, Optional, Sequence
 
 
 DEFAULT_AUDIO_FILES: Sequence[str] = (
+    "/home/jetson/car_audio/alert.mp3",
     "/home/jetson/car_audio/前方有危险.MP3",
+    "/home/jetson/car_audio/reverse.mp3",
+    "/home/jetson/car_audio/scared.mp3",
     "/home/jetson/car_audio/light_show.wav",
     "/home/jetson/audio/light_show.wav",
     "/usr/share/sounds/alsa/Front_Center.wav",
