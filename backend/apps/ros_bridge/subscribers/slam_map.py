@@ -34,7 +34,7 @@ class SlamMapSubscriber:
         scan_topic: str = "/scan",
         scan_x_offset: float = -0.0455,
         scan_y_offset: float = 5.258e-05,
-        scan_yaw_offset: float = math.pi,
+        scan_yaw_offset: float = 0.0,
         node_name: str = "ros_bridge_slam_map",
     ) -> None:
         if (

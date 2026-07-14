@@ -54,7 +54,7 @@ router = APIRouter()
 
 DEFAULT_ROS_BRIDGE_BY_ROBOT = {
     "robot_001": "http://192.168.137.239:8001",
-    "robot_002": "http://192.168.137.89:8001",
+    "robot_002": "http://192.168.137.95:8001",
 }
 
 

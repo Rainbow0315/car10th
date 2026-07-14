@@ -46,6 +46,47 @@ void main() {
     expect(firstProbe.messages.single, r'$011504011B#');
     expect(secondProbe.messages.single, r'$011504011B#');
   });
+
+  test('fleet velocity reports the failed robot when one target is offline',
+      () async {
+    final firstProbe = await _TcpProbe.start();
+    final offlinePort = await _reserveUnusedPort();
+    final settings = _TestSettings([
+      RobotControlTarget(
+        code: 'robot_001',
+        label: '灏忚溅1',
+        host: InternetAddress.loopbackIPv4.address,
+        tcpPort: firstProbe.port,
+        apiBaseUrl: 'http://127.0.0.1:8000',
+      ),
+      RobotControlTarget(
+        code: 'robot_002',
+        label: '灏忚溅2',
+        host: InternetAddress.loopbackIPv4.address,
+        tcpPort: offlinePort,
+        apiBaseUrl: 'http://127.0.0.1:8000',
+      ),
+    ]);
+    final repository = TcpCarRepository(settings: settings);
+
+    addTearDown(repository.dispose);
+    addTearDown(firstProbe.close);
+
+    final error = await _captureError(
+      repository.sendFleetVelocity(
+        robotCodes: ['robot_001', 'robot_002'],
+        linearX: 0.2,
+        linearY: 0.0,
+        angularZ: 0.0,
+      ),
+    );
+
+    await _waitFor(() => firstProbe.messages.isNotEmpty);
+
+    expect(firstProbe.messages.single, r'$011504011B#');
+    expect(error.toString(), contains('partially failed'));
+    expect(error.toString(), contains('robot_002'));
+  });
 }
 
 class _TestSettings extends AppSettings {
@@ -106,4 +147,20 @@ Future<void> _waitFor(bool Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Condition was not met before timeout.');
+}
+
+Future<int> _reserveUnusedPort() async {
+  final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  final port = socket.port;
+  await socket.close();
+  return port;
+}
+
+Future<Object> _captureError(Future<void> future) async {
+  try {
+    await future;
+  } catch (e) {
+    return e;
+  }
+  fail('Expected command to fail.');
 }

@@ -3,10 +3,14 @@
 适用环境：
 
 - 小车 IP：`192.168.137.239`
+- 小车2 IP：`192.168.137.95`
 - ROS 容器：`ros_x3_fixed`
-- ROS_DOMAIN_ID：`30`
+- ROS_DOMAIN_ID：车1 `30`，车2 `31`
 - 车型/雷达：`ROBOT_TYPE=x3`，`RPLIDAR_TYPE=a1`
 - App API：`http://192.168.137.239:8000`
+
+> 2026-07-14 真车验证：车1是 `192.168.137.239`，车2是 `192.168.137.95`。App 设置页和小车选择器里的 API/TCP 地址要跟当前车辆一致。
+> 2026-07-14 真车验证：Windows Docker MySQL/MQTT 主机是 `192.168.137.20`，MySQL 密码是 `jyt20050315`。两台车 `/root/car10th/backend/.env` 的 `MYSQL_HOST` / `MQTT_BROKER_HOST` 都应指向 `192.168.137.20`。
 
 ## 0. Windows 端先确认
 
@@ -25,6 +29,30 @@ Test-NetConnection 192.168.137.239 -Port 8000
 ```
 
 `8000` 不通时，通常不是 App 问题，而是车上的容器或后端没起来。
+
+## 0.1 先查是不是原厂 App 占了摄像头
+
+摄像头物理端口只有一个。若 App 直播报 503、`/image_raw` 有 topic 但没有新帧，先在小车宿主机查 `/dev/video0` 是否被原厂程序占用：
+
+```bash
+fuser -v /dev/video0 /dev/video1 2>&1 || true
+ps -ef | grep -Ei 'Rosmaster-App|usb_cam|camera|video' | grep -v grep || true
+```
+
+如果看到：
+
+```text
+python3 /home/jetson/Rosmaster-App/rosmaster/app.py
+```
+
+说明原厂 App 正在独占摄像头，`usb_cam` 无法正常出帧。先停掉它，再启动 ROS 图像链路：
+
+```bash
+pkill -f '^python3 /home/jetson/Rosmaster-App/rosmaster/app.py' || true
+fuser -v /dev/video0 /dev/video1 2>&1 || true
+```
+
+注意：不要让原厂 App、OpenCV 测试脚本、`usb_cam` 同时打开 `/dev/video0`。App 直播和 YOLO 都应该复用 ROS `/image_raw`。
 
 ## 1. 启动 ROS 容器
 
@@ -77,6 +105,8 @@ nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 \
   > /tmp/web_api.log 2>&1 &
 ```
 
+如果是巡航/定时巡航测试，`web_api` 启动时会同时启动巡航定时调度器，读取数据库里 `schedule_cron` 非空的 `/api/patrol/tasks`。定时表达式是 5 段 cron，例如 `0 22 * * *`。
+
 验证：
 
 ```bash
@@ -104,7 +134,7 @@ Invoke-RestMethod "http://192.168.137.239:8000/api/inspection/alarms?limit=3"
 
 ## 3. 建图模式和导航模式二选一
 
-不要同时开 `map_gmapping_launch.py` 和 `navigation_dwa_fast_launch.py`。
+不要同时开 `map_gmapping_launch.py` 和导航 launch。
 
 - 建图模式：`/map` 由 `slam_gmapping` 发布，是实时动态地图。
 - 导航模式：`/map` 由 `map_server` 发布，是保存好的静态地图。
@@ -128,10 +158,21 @@ cp /root/yahboomcar_ros2_ws/yahboomcar_ws/src/yahboomcar_nav/maps/yahboomcar.* \
 
 用于 App 显示静态地图、后续发导航目标：
 
+车1当前使用优化版导航：
+
 ```bash
 nohup ros2 launch yahboomcar_nav navigation_dwa_fast_launch.py \
   > /tmp/navigation_dwa_fast.log 2>&1 &
 ```
+
+车2当前稳定启动项仍是原版导航：
+
+```bash
+nohup ros2 launch yahboomcar_nav navigation_dwa_launch.py \
+  > /tmp/navigation_dwa.log 2>&1 &
+```
+
+说明：2026-07-14 已把车1的 `navigation_dwa_fast_launch.py`、`navigation_dwa_candidate_launch.py`、`dwa_nav_params_fast.yaml`、`dwa_nav_params_candidate.yaml` 同步到车2的 Yahboom ROS 工作空间，但车2用 fast 入口启动时仍出现 `base_footprint -> odom` TF 等待，巡航前先用原版 `navigation_dwa_launch.py` 保证 `/map`、`/amcl_pose` 和 App 地图可用。
 
 启动后给 AMCL 一个初始位姿：
 
@@ -147,6 +188,7 @@ ros2 topic info /map
 ros2 topic info /scan
 ros2 topic info /odom
 tail -40 /tmp/navigation_dwa_fast.log
+tail -40 /tmp/navigation_dwa.log
 ```
 
 期望：
@@ -156,6 +198,8 @@ tail -40 /tmp/navigation_dwa_fast.log
 - `/odom` publisher 是 `ekf_filter_node`
 - 日志里有 `Managed nodes are active`
 
+如果日志持续提示 `Please set the initial pose`，说明 AMCL 还没有初始位姿。可以先用上面的 `/initialpose` 命令给一个默认位姿，再在 App 地图页校准。
+
 ## 4. 摄像头预览和 AI 检测
 
 如果只验证 App 摄像头预览，先启动 RGB 图像和 AI 服务即可，不需要启动 YOLO monitor。
@@ -163,10 +207,12 @@ tail -40 /tmp/navigation_dwa_fast.log
 ### 4.1 启动 USB 摄像头
 
 ```bash
-ros2 launch usb_cam demo_launch.py
+nohup ros2 run usb_cam usb_cam_node_exe \
+  --ros-args --params-file /opt/ros/foxy/share/usb_cam/config/params.yaml \
+  > /tmp/usb_cam.log 2>&1 &
 ```
 
-预期有 `/image_raw`。如果 `show_image.py` 报 OpenCV GUI 错误，一般可以先忽略，只要 `usb_cam_node_exe` 还在发布图像。
+预期有 `/image_raw`。不推荐日常用 `ros2 launch usb_cam demo_launch.py`，因为它会额外启动 `show_image.py`，在无 GUI 或 NoMachine 环境下容易产生干扰。只启动 `usb_cam_node_exe` 更稳。
 
 注意：摄像头物理端口只有一个，不要让多个进程同时打开 `/dev/video0`。推荐只由 `usb_cam` 打开摄像头，App 预览和 AI 检测都从 ROS `/image_raw` 间接取图。
 
@@ -175,6 +221,7 @@ ros2 launch usb_cam demo_launch.py
 ```bash
 ros2 topic list | grep image_raw
 ros2 topic hz /image_raw
+tail -40 /tmp/usb_cam.log
 ```
 
 ### 4.2 启动 AI 服务和主后端
@@ -201,6 +248,9 @@ curl http://127.0.0.1:8000/health
 curl "http://127.0.0.1:8000/api/inspection/camera/snapshot?topic_name=/image_raw&timeout_sec=3" \
   -o /tmp/app_snapshot.jpg
 ls -lh /tmp/app_snapshot.jpg
+curl "http://127.0.0.1:8000/api/inspection/camera/mjpeg?topic_name=/image_raw&fps=3&timeout_sec=5" \
+  --max-time 4 -o /tmp/app_mjpeg_probe.bin || true
+ls -lh /tmp/app_mjpeg_probe.bin
 ```
 
 Windows 上也可以不启动模型，只验证视频预览链路：
@@ -214,6 +264,7 @@ cd D:\code\car\car10th
 
 - `web_api` 和 `ai_service` health 都是 `ok`
 - 能保存约 `150 KB` 左右的 JPEG
+- MJPEG 探测文件在 4 秒内能拿到持续增长的数据
 - `monitor/status.running=false` 表示还没启动 YOLO monitor
 
 ### 4.3 启动 YOLO 检测
@@ -254,6 +305,22 @@ curl http://127.0.0.1:8001/health
 ```
 
 如果 `docker ps` 里没有 `ros_x3_fixed`，说明容器停了，重新从第 1 节开始。
+
+如果 `8000/8001` 能通，但视频 503、控制无响应、地图无数据，按链路分别查：
+
+```bash
+ss -lntp | grep -E ':8000|:8001|:8002|:6001' || true
+ros2 topic info /image_raw
+ros2 topic info /map
+ros2 topic info /scan
+ros2 topic info /odom
+curl http://127.0.0.1:8002/health
+curl http://127.0.0.1:8000/api/inspection/camera/status
+```
+
+- 视频：`8002` 必须健康，`/image_raw` 必须有 publisher 且能出新帧。
+- 控车：宿主机必须监听 `6001`，App 走 TCP 到 `小车IP:6001`。
+- 地图：`/map`、`/scan`、`/odom` 必须都有 publisher。
 
 ### App 显示圆形雷达图，不是保存的地图
 
@@ -316,10 +383,17 @@ ln -sf /dev/ttyUSB0 /dev/rplidar
 chmod 666 /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2 2>/dev/null || true
 
 nohup ros2 launch yahboomcar_nav laser_bringup_launch.py > /tmp/laser_bringup_nav.log 2>&1 &
+# 车1：
 nohup ros2 launch yahboomcar_nav navigation_dwa_fast_launch.py > /tmp/navigation_dwa_fast.log 2>&1 &
+# 车2当前稳定项：
+# nohup ros2 launch yahboomcar_nav navigation_dwa_launch.py > /tmp/navigation_dwa.log 2>&1 &
 
 cd /root/car10th/backend
 nohup python3 -m apps.ros_bridge.main > /tmp/ros_bridge.log 2>&1 &
+nohup python3 -m apps.tcp_car_bridge.main > /tmp/tcp_car_bridge.log 2>&1 &
+nohup ros2 run usb_cam usb_cam_node_exe --ros-args --params-file /opt/ros/foxy/share/usb_cam/config/params.yaml > /tmp/usb_cam.log 2>&1 &
+export PYTHONPATH=/root/yolov7:$PYTHONPATH
+nohup python3 -m uvicorn apps.ai_service.main:app --host 0.0.0.0 --port 8002 > /tmp/ai_service.log 2>&1 &
 nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp/web_api.log 2>&1 &
 ```
 
@@ -328,5 +402,16 @@ nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp
 ```bash
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/slam/map
+curl "http://127.0.0.1:8000/api/inspection/camera/snapshot?topic_name=/image_raw&timeout_sec=3" -o /tmp/app_snapshot.jpg
 curl "http://127.0.0.1:8000/api/inspection/alarms?limit=3"
+```
+
+最后从 Windows 验证：
+
+```powershell
+Test-NetConnection 192.168.137.239 -Port 6001
+Invoke-RestMethod http://192.168.137.239:8000/health
+Invoke-RestMethod http://192.168.137.239:8001/health
+Invoke-RestMethod http://192.168.137.239:8002/health
+Invoke-WebRequest "http://192.168.137.239:8000/api/inspection/camera/snapshot?topic_name=/image_raw&timeout_sec=3" -OutFile "$env:TEMP\car10th_snapshot.jpg"
 ```

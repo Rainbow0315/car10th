@@ -44,6 +44,7 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
         robotCode: result.robotCode,
         waypoints: result.waypoints,
         loopCount: result.loopCount,
+        scheduleCron: result.scheduleCron,
       );
     } else {
       await repo.updatePatrolTask(
@@ -53,6 +54,7 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
           robotCode: result.robotCode,
           waypoints: result.waypoints,
           loopCount: result.loopCount,
+          scheduleCron: result.scheduleCron,
           status: task?.status ?? 'draft',
         ),
       );
@@ -112,18 +114,27 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('定时巡检（占位）', style: theme.textTheme.titleSmall),
+                    Text('巡航配置', style: theme.textTheme.titleSmall),
                     const SizedBox(height: 8),
-                    const _KvRow(k: '巡检时段', v: '22:00 - 06:00'),
-                    const _KvRow(k: '循环次数', v: '3'),
-                    const _KvRow(k: '视觉检测', v: '开启'),
-                    const SizedBox(height: 8),
-                    FilledButton.tonalIcon(
-                      onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(
-                              const SnackBar(content: Text('定时巡检配置（待后端接口）'))),
-                      icon: const Icon(Icons.schedule),
-                      label: const Text('编辑定时配置'),
+                    const _KvRow(k: '路线来源', v: '航点顺序即巡航路线'),
+                    const _KvRow(k: '定时格式', v: 'cron，例如 0 22 * * *'),
+                    const _KvRow(k: '执行链路', v: 'App -> web_api -> /goal_pose'),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => _editTask(),
+                          icon: const Icon(Icons.route_outlined),
+                          label: const Text('设置巡航路线'),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: () => _editTask(),
+                          icon: const Icon(Icons.schedule),
+                          label: const Text('设置定时巡航'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -170,7 +181,7 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(t.name),
                                   subtitle: Text(
-                                    'robot=${t.robotCode} 航点=${t.waypoints.length} loop=${t.loopCount} status=${t.status}',
+                                    'robot=${t.robotCode} 航点=${t.waypoints.length} loop=${t.loopCount} 定时=${t.scheduleCron?.isNotEmpty == true ? t.scheduleCron : "手动"} status=${t.status}',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -235,6 +246,7 @@ class _PatrolTaskDraft {
   final String name;
   final String robotCode;
   final int loopCount;
+  final String? scheduleCron;
   final List<PatrolWaypointConfig> waypoints;
 
   const _PatrolTaskDraft({
@@ -242,6 +254,7 @@ class _PatrolTaskDraft {
     required this.name,
     required this.robotCode,
     required this.loopCount,
+    required this.scheduleCron,
     required this.waypoints,
   });
 }
@@ -260,6 +273,7 @@ class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
   late final TextEditingController _name;
   late final TextEditingController _robotCode;
   late final TextEditingController _loopCount;
+  late final TextEditingController _scheduleCron;
   late List<PatrolWaypointConfig> _waypoints;
 
   @override
@@ -270,6 +284,8 @@ class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
         TextEditingController(text: widget.initial?.robotCode ?? 'robot_001');
     _loopCount = TextEditingController(
         text: (widget.initial?.loopCount ?? 1).toString());
+    _scheduleCron =
+        TextEditingController(text: widget.initial?.scheduleCron ?? '');
     _waypoints =
         List<PatrolWaypointConfig>.from(widget.initial?.waypoints ?? const []);
     _normalizeSeq();
@@ -280,6 +296,7 @@ class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
     _name.dispose();
     _robotCode.dispose();
     _loopCount.dispose();
+    _scheduleCron.dispose();
     super.dispose();
   }
 
@@ -381,6 +398,22 @@ class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
                 ],
               ),
               const SizedBox(height: 10),
+              TextFormField(
+                controller: _scheduleCron,
+                decoration: const InputDecoration(
+                  labelText: '定时 cron（可空）',
+                  hintText: '0 22 * * *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) {
+                  final clean = v?.trim() ?? '';
+                  if (clean.isEmpty) return null;
+                  return clean.split(RegExp(r'\s+')).length == 5
+                      ? null
+                      : 'cron 需要 5 段，例如 0 22 * * *';
+                },
+              ),
+              const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -455,6 +488,9 @@ class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
                 name: _name.text.trim(),
                 robotCode: _robotCode.text.trim(),
                 loopCount: loopCount,
+                scheduleCron: _scheduleCron.text.trim().isEmpty
+                    ? null
+                    : _scheduleCron.text.trim(),
                 waypoints: _waypoints,
               ),
             );

@@ -233,6 +233,7 @@ class PatrolTask {
   final String robotCode;
   final List<PatrolWaypointConfig> waypoints;
   final int loopCount;
+  final String? scheduleCron;
   final String status;
 
   const PatrolTask({
@@ -241,6 +242,7 @@ class PatrolTask {
     required this.robotCode,
     required this.waypoints,
     required this.loopCount,
+    this.scheduleCron,
     required this.status,
   });
 }

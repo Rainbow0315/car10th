@@ -348,7 +348,10 @@ class CarTcpHandler(socketserver.BaseRequestHandler):
         assert bridge is not None
         buffer = ""
         while True:
-            data = self.request.recv(1024)
+            try:
+                data = self.request.recv(1024)
+            except ConnectionResetError:
+                return
             if not data:
                 return
             buffer += data.decode("ascii", errors="ignore")
@@ -362,7 +365,10 @@ class CarTcpHandler(socketserver.BaseRequestHandler):
                     response = bridge.handle_frame(frame)
                 except Exception as exc:
                     response = f"ERR {exc}\n"
-                self.request.sendall(response.encode("ascii"))
+                try:
+                    self.request.sendall(response.encode("ascii"))
+                except (BrokenPipeError, ConnectionResetError):
+                    return
 
 
 class ThreadedTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):

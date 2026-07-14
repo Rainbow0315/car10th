@@ -29,7 +29,7 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
   Future<InspectionMonitorStatus>? _monitorFuture;
   bool _monitorBusy = false;
   bool _loaded = false;
-  String _robotCode = 'robot_002';
+  String _robotCode = 'robot_001';
   int _previewSession = 0;
 
   Repository get _repo => context.read<Repository>();
@@ -48,6 +48,7 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
     if (_loaded) return;
     _loaded = true;
     final settings = context.read<AppSettings>();
+    _robotCode = settings.selectedControlTarget.code;
     _robotCode = settings.controlTargets.any(
       (target) => target.code == _robotCode,
     )

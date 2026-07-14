@@ -8,6 +8,11 @@ import 'package:http/http.dart' as http;
 import '../app/app_settings.dart';
 import 'models.dart';
 
+String? _cleanScheduleCron(String? value) {
+  final clean = value?.trim();
+  return clean == null || clean.isEmpty ? null : clean;
+}
+
 enum RobotLightEffect {
   off(0),
   running(1),
@@ -83,6 +88,7 @@ abstract class Repository {
     required String robotCode,
     required List<PatrolWaypointConfig> waypoints,
     int loopCount,
+    String? scheduleCron,
   });
   Future<PatrolTask> updatePatrolTask(PatrolTask task);
   Future<void> deletePatrolTask(String taskCode);
@@ -358,13 +364,27 @@ class TcpCarRepository extends MockRepository {
       throw StateError('TCP car repository has been disposed');
     }
     final codes = robotCodes.isEmpty ? [settings.controlRobotCode] : robotCodes;
+    final failures = <String>[];
     await Future.wait<void>([
       for (final code in codes)
-        () {
+        () async {
           final target = _controlTargetFor(code);
-          return _enqueueSend(target.host, target.tcpPort, message);
+          try {
+            await _enqueueSend(target.host, target.tcpPort, message);
+          } catch (e) {
+            failures.add(
+              '${target.code}(${target.host}:${target.tcpPort}) $e',
+            );
+          }
         }(),
     ]);
+    if (failures.isNotEmpty) {
+      final successCount = codes.length - failures.length;
+      final prefix = successCount > 0
+          ? 'Fleet TCP command partially failed'
+          : 'Fleet TCP command failed';
+      throw StateError('$prefix: ${failures.join('; ')}');
+    }
   }
 
   Future<void> _enqueueSend(String host, int port, String message) {
@@ -801,6 +821,7 @@ class CloudRepository extends TcpCarRepository {
     required String robotCode,
     required List<PatrolWaypointConfig> waypoints,
     int loopCount = 1,
+    String? scheduleCron,
   }) async {
     final json = await _postJson('/api/patrol/tasks', {
       'task_name': name,
@@ -815,6 +836,7 @@ class CloudRepository extends TcpCarRepository {
               })
           .toList(growable: false),
       'loop_count': loopCount,
+      'schedule_cron': _cleanScheduleCron(scheduleCron),
       'return_to_start': true,
     }) as Map<String, dynamic>;
     return _patrolTaskFromJson(json);
@@ -835,6 +857,7 @@ class CloudRepository extends TcpCarRepository {
               })
           .toList(growable: false),
       'loop_count': task.loopCount,
+      'schedule_cron': _cleanScheduleCron(task.scheduleCron),
       'return_to_start': true,
     }) as Map<String, dynamic>;
     return _patrolTaskFromJson(json);
@@ -1161,8 +1184,14 @@ class CloudRepository extends TcpCarRepository {
       robotCode: (json['robot_code'] ?? 'robot_001').toString(),
       waypoints: wps,
       loopCount: _asInt(json['loop_count']),
+      scheduleCron: json['schedule_cron']?.toString(),
       status: (json['status'] ?? 'draft').toString(),
     );
+  }
+
+  String? _cleanScheduleCron(String? value) {
+    final clean = value?.trim();
+    return clean == null || clean.isEmpty ? null : clean;
   }
 
   PatrolRuntime _patrolRuntimeFromJson(Map<String, dynamic> json) {
@@ -1301,6 +1330,7 @@ class MockRepository implements Repository {
           ),
         ],
         loopCount: 1,
+        scheduleCron: null,
         status: 'draft',
       ),
     ]);
@@ -1537,6 +1567,7 @@ class MockRepository implements Repository {
     required String robotCode,
     required List<PatrolWaypointConfig> waypoints,
     int loopCount = 1,
+    String? scheduleCron,
   }) async {
     final task = PatrolTask(
       taskCode:
@@ -1545,6 +1576,7 @@ class MockRepository implements Repository {
       robotCode: robotCode.trim(),
       waypoints: waypoints,
       loopCount: loopCount,
+      scheduleCron: _cleanScheduleCron(scheduleCron),
       status: 'draft',
     );
     _patrolTasks.add(task);
@@ -1582,6 +1614,7 @@ class MockRepository implements Repository {
       robotCode: current.robotCode,
       waypoints: current.waypoints,
       loopCount: current.loopCount,
+      scheduleCron: current.scheduleCron,
       status: 'running',
     );
     _patrolRuntime[taskCode] = PatrolRuntime(
@@ -1608,6 +1641,7 @@ class MockRepository implements Repository {
         robotCode: current.robotCode,
         waypoints: current.waypoints,
         loopCount: current.loopCount,
+        scheduleCron: current.scheduleCron,
         status: 'cancelled',
       );
     }

@@ -38,9 +38,17 @@ def main() -> None:
         description="Deploy tcp_car_bridge to two robots and optionally run a short dual motion test.",
     )
     parser.add_argument("--car1", default="192.168.137.239")
-    parser.add_argument("--car2", default="192.168.137.89")
-    parser.add_argument("--car1-domain", default="30")
-    parser.add_argument("--car2-domain", default="31")
+    parser.add_argument("--car2", default="192.168.137.95")
+    parser.add_argument(
+        "--car1-domain",
+        default="auto",
+        help="ROS_DOMAIN_ID for car1 tcp bridge; use auto to reuse the running ros_bridge domain.",
+    )
+    parser.add_argument(
+        "--car2-domain",
+        default="auto",
+        help="ROS_DOMAIN_ID for car2 tcp bridge; use auto to reuse the running ros_bridge domain.",
+    )
     parser.add_argument("--port", type=int, default=6001)
     parser.add_argument("--duration", type=float, default=2.0)
     parser.add_argument("--interval", type=float, default=0.12)
@@ -57,13 +65,24 @@ def main() -> None:
         RobotTarget("robot_002", args.car2, args.car2_domain, args.port),
     ]
 
-    for robot in robots:
-        check_tcp(robot.host, 22, timeout=4)
-        check_tcp(robot.host, robot.port, timeout=4)
-
     if not args.skip_deploy:
         for robot in robots:
-            deploy(robot)
+            try:
+                deploy(robot)
+            except Exception as exc:
+                print(f"deploy {robot.name} failed: {exc}")
+                if is_tcp_reachable(robot.host, robot.port, timeout=6):
+                    print(
+                        f"  existing TCP bridge is reachable on {robot.host}:{robot.port}; "
+                        "continuing with verification",
+                    )
+                else:
+                    raise
+    else:
+        print("deployment skipped; SSH is not required for TCP motion checks")
+
+    for robot in robots:
+        check_tcp(robot.host, robot.port, timeout=6)
 
     for robot in robots:
         print(f"verify {robot.name} stop/audio on {robot.host}:{robot.port}")
@@ -94,27 +113,73 @@ def check_tcp(host: str, port: int, timeout: float) -> None:
     print(f"{host}:{port} reachable in {time.monotonic() - start:.2f}s")
 
 
+def is_tcp_reachable(host: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def deploy(robot: RobotTarget) -> None:
     print(f"deploy {robot.name} {robot.host}")
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        robot.host,
-        username=ROBOT_USER,
-        password=ROBOT_PASSWORD,
-        timeout=8,
-        banner_timeout=8,
-        auth_timeout=8,
-    )
+    client = connect_ssh(robot.host)
     try:
+        ros_domain_id = robot.ros_domain_id
+        if ros_domain_id == "auto":
+            ros_domain_id = detect_ros_domain(client)
+            print(f"  detected ROS_DOMAIN_ID={ros_domain_id}")
+
         sftp = client.open_sftp()
         for local_path, remote_path in FILES:
             print(f"  put {local_path.relative_to(ROOT)}")
             sftp.put(str(local_path), remote_path)
         sftp.close()
-        run_remote(client, restart_command(robot.ros_domain_id))
+        run_remote(client, restart_command(ros_domain_id))
     finally:
         client.close()
+
+
+def connect_ssh(host: str) -> paramiko.SSHClient:
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                host,
+                username=ROBOT_USER,
+                password=ROBOT_PASSWORD,
+                timeout=15,
+                banner_timeout=25,
+                auth_timeout=15,
+            )
+            return client
+        except Exception as exc:
+            client.close()
+            last_error = exc
+            print(f"  ssh connect attempt {attempt}/3 failed: {exc}")
+            time.sleep(1.0)
+    raise RuntimeError(f"cannot connect to {host} over SSH: {last_error}")
+
+
+def detect_ros_domain(client: paramiko.SSHClient) -> str:
+    command = r"""
+docker start ros_x3_fixed >/dev/null
+docker exec ros_x3_fixed bash -lc '
+pid=$(pgrep -f "[a]pps.ros_bridge.main" | head -1)
+if [ -n "$pid" ]; then
+  tr "\0" "\n" < "/proc/$pid/environ" | sed -n "s/^ROS_DOMAIN_ID=//p" | head -1
+fi
+'
+"""
+    _, stdout, stderr = client.exec_command(command, timeout=20)
+    out = stdout.read().decode("utf-8", "replace").strip()
+    err = stderr.read().decode("utf-8", "replace").strip()
+    code = stdout.channel.recv_exit_status()
+    if code != 0:
+        print(f"  ROS_DOMAIN_ID auto-detect failed: {err or out}")
+    return out or "30"
 
 
 def restart_command(ros_domain_id: str) -> str:

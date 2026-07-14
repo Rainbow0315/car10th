@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+except ImportError:  # pragma: no cover - robot runtime dependency guard
+    BackgroundScheduler = None
+    CronTrigger = None
 
 from apps.web_api.services.slam_service import slam_service
 from apps.web_api.services.teleop_service import teleop_service
@@ -61,11 +67,14 @@ class PatrolService:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._runtime: Dict[str, PatrolRuntimeState] = {}
+        self._scheduler_lock = threading.Lock()
+        self._scheduler = None
 
         self.arrival_tolerance_m = float(0.35)
         self.arrival_hold_checks = int(2)
         self.poll_interval_sec = float(0.6)
         self.per_waypoint_timeout_sec = float(240.0)
+        self.scheduler_timezone = "Asia/Shanghai"
 
     def list_tasks(self, limit: int = 50) -> List[VideoAnalysisTask]:
         with SessionLocal() as db:
@@ -107,6 +116,7 @@ class PatrolService:
             db.add(task)
             db.commit()
             db.refresh(task)
+            self.sync_schedule_jobs()
             return task
 
     def update_task(self, task_code: str, payload: Dict[str, Any]) -> VideoAnalysisTask:
@@ -136,6 +146,7 @@ class PatrolService:
             task.updated_at = _now()
             db.commit()
             db.refresh(task)
+            self.sync_schedule_jobs()
             return task
 
     def delete_task(self, task_code: str) -> None:
@@ -148,13 +159,14 @@ class PatrolService:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
             db.delete(task)
             db.commit()
+        self.sync_schedule_jobs()
 
     def get_runtime(self, task_code: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             runtime = self._runtime.get(task_code)
             return None if runtime is None else runtime.snapshot()
 
-    def start_task(self, task_code: str) -> None:
+    def start_task(self, task_code: str, trigger_type: TriggerType = TriggerType.app) -> None:
         task = self.get_task(task_code)
         waypoints = _as_waypoints(task.waypoints_json)
         if len(waypoints) < 2:
@@ -184,7 +196,7 @@ class PatrolService:
             )
             thread.start()
 
-        self._mark_db_running(task_code)
+        self._mark_db_running(task_code, trigger_type)
 
     def stop_task(self, task_code: str) -> None:
         runtime = None
@@ -206,13 +218,13 @@ class PatrolService:
             runtime = self._runtime.get(task_code)
             return bool(runtime is not None and runtime.running)
 
-    def _mark_db_running(self, task_code: str) -> None:
+    def _mark_db_running(self, task_code: str, trigger_type: TriggerType = TriggerType.app) -> None:
         with SessionLocal() as db:
             task = db.query(VideoAnalysisTask).filter(VideoAnalysisTask.task_code == task_code).first()
             if task is None:
                 return
             task.status = TaskStatus.running
-            task.trigger_type = TriggerType.app
+            task.trigger_type = trigger_type
             task.started_at = _now()
             task.finished_at = None
             task.error_message = None
@@ -342,6 +354,68 @@ class PatrolService:
             time.sleep(self.poll_interval_sec)
 
         raise RuntimeError(f"waypoint timeout, last_distance={last_distance}")
+
+    def start_scheduler(self) -> None:
+        if BackgroundScheduler is None or CronTrigger is None:
+            print("patrol scheduler unavailable: apscheduler is not installed")
+            return
+        with self._scheduler_lock:
+            if self._scheduler is not None and self._scheduler.running:
+                self.sync_schedule_jobs()
+                return
+            self._scheduler = BackgroundScheduler(timezone=self.scheduler_timezone)
+            self._scheduler.start()
+        self.sync_schedule_jobs()
+
+    def shutdown_scheduler(self) -> None:
+        with self._scheduler_lock:
+            scheduler = self._scheduler
+            self._scheduler = None
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+
+    def sync_schedule_jobs(self) -> None:
+        with self._scheduler_lock:
+            scheduler = self._scheduler
+        if scheduler is None or not scheduler.running or CronTrigger is None:
+            return
+
+        with SessionLocal() as db:
+            tasks = db.query(VideoAnalysisTask).filter(VideoAnalysisTask.schedule_cron.isnot(None)).all()
+            scheduled = {
+                str(task.task_code): str(task.schedule_cron or "").strip()
+                for task in tasks
+                if str(task.schedule_cron or "").strip()
+            }
+
+        for job in list(scheduler.get_jobs()):
+            if job.id.startswith("patrol:") and job.id[len("patrol:") :] not in scheduled:
+                scheduler.remove_job(job.id)
+
+        for task_code, cron_expr in scheduled.items():
+            job_id = f"patrol:{task_code}"
+            try:
+                trigger = CronTrigger.from_crontab(cron_expr, timezone=self.scheduler_timezone)
+            except ValueError as exc:
+                print(f"skip invalid patrol cron task_code={task_code} cron={cron_expr!r}: {exc}")
+                continue
+            scheduler.add_job(
+                self._run_scheduled_task,
+                trigger=trigger,
+                args=[task_code],
+                id=job_id,
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+
+    def _run_scheduled_task(self, task_code: str) -> None:
+        try:
+            self.start_task(task_code, trigger_type=TriggerType.scheduled)
+        except HTTPException as exc:
+            print(f"scheduled patrol skipped task_code={task_code}: {exc.detail}")
+        except Exception as exc:  # pragma: no cover - runtime safety guard
+            print(f"scheduled patrol failed task_code={task_code}: {exc}")
 
 
 class _Cancelled(Exception):
