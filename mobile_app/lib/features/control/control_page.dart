@@ -349,6 +349,15 @@ class _ControlPageState extends State<ControlPage> {
                         icon: const Icon(Icons.stop_circle_outlined),
                         label: const Text('停止灯光秀'),
                       ),
+                      FilledButton.tonalIcon(
+                        onPressed: () => _send(
+                          '播放音频',
+                          (repo) => repo.playAudio(),
+                          toast: true,
+                        ),
+                        icon: const Icon(Icons.volume_up_outlined),
+                        label: const Text('播放音频'),
+                      ),
                     ],
                   ),
                 ],

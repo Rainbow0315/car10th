@@ -77,6 +77,7 @@ abstract class Repository {
   Future<void> setLightEffect(RobotLightEffect effect);
   Future<void> startLightShow();
   Future<void> stopLightShow();
+  Future<void> playAudio();
   Future<void> updateWheelSpeeds({
     required double leftFront,
     required double leftRear,
@@ -199,6 +200,11 @@ class TcpCarRepository extends MockRepository {
   @override
   Future<void> stopLightShow() async {
     await _send(_encode('32', []));
+  }
+
+  @override
+  Future<void> playAudio() async {
+    await _send(_encode('33', []));
   }
 
   @override
@@ -1169,6 +1175,11 @@ class MockRepository implements Repository {
 
   @override
   Future<void> stopLightShow() async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> playAudio() async {
     await _delay(null);
   }
 
