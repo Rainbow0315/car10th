@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from datetime import datetime
+from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -32,6 +33,8 @@ class LlmTaskService:
         self._lock = Lock()
         self._plans: dict[str, LlmTaskPlanResponse] = {}
         self._tools = self._build_tools()
+        self._plan_store_path = Path.cwd() / ".run" / "llm_plans.json"
+        self._load_plans()
 
     def list_tools(self, robot_codes: Optional[list[str]] = None) -> LlmToolListResponse:
         return LlmToolListResponse(tools=self._tools_with_availability(robot_codes or ["robot_001"]))
@@ -86,6 +89,7 @@ class LlmTaskService:
         with self._lock:
             self._plans[plan.plan_id] = plan
             self._plans = dict(list(self._plans.items())[-100:])
+            self._save_plans()
         return plan
 
     def execute(self, plan_id: str, confirmed: bool) -> LlmTaskExecuteResponse:
@@ -96,6 +100,7 @@ class LlmTaskService:
         executed = self._execute_plan(plan, confirmed=confirmed)
         with self._lock:
             self._plans[plan_id] = executed
+            self._save_plans()
         return LlmTaskExecuteResponse(
             plan_id=plan_id,
             executed_at=datetime.now(),
@@ -401,6 +406,35 @@ class LlmTaskService:
             )
             return {"command": command}
         raise ValueError(f"Unsupported LLM tool: {step.tool}")
+
+    def _load_plans(self) -> None:
+        try:
+            if not self._plan_store_path.exists():
+                return
+            raw = json.loads(self._plan_store_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, list):
+                return
+            plans = {}
+            for item in raw[-100:]:
+                try:
+                    plan = LlmTaskPlanResponse.model_validate(item)
+                except Exception:
+                    continue
+                plans[plan.plan_id] = plan
+            self._plans = plans
+        except Exception:
+            self._plans = {}
+
+    def _save_plans(self) -> None:
+        try:
+            self._plan_store_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = [plan.model_dump(mode="json") for plan in self._plans.values()]
+            self._plan_store_path.write_text(
+                json.dumps(payload[-100:], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            return
 
     def _publish_command(self, robot_code: str, command: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         topic = fleet_command_topic(robot_code)

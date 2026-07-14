@@ -558,11 +558,14 @@ class CloudRepository extends TcpCarRepository {
 
   @override
   Future<LlmTaskPlan> planLlmTask(String prompt) async {
+    final robotCode = settings.controlRobotCode.startsWith('robot_')
+        ? settings.controlRobotCode
+        : 'robot_001';
     final json = await _postJson(
       '/api/llm/tasks/plan',
       {
         'message': prompt,
-        'robot_codes': ['robot_001'],
+        'robot_codes': [robotCode],
         'allow_llm': true,
         'auto_execute': false,
       },
