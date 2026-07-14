@@ -77,6 +77,19 @@ abstract class Repository {
   Future<void> deleteRoute(String id);
   Future<SlamMap> getSlamMap();
 
+  Future<List<PatrolTask>> listPatrolTasks();
+  Future<PatrolTask> createPatrolTask({
+    required String name,
+    required String robotCode,
+    required List<PatrolWaypointConfig> waypoints,
+    int loopCount,
+  });
+  Future<PatrolTask> updatePatrolTask(PatrolTask task);
+  Future<void> deletePatrolTask(String taskCode);
+  Future<void> startPatrolTask(String taskCode);
+  Future<void> stopPatrolTask(String taskCode);
+  Future<PatrolRuntime?> getPatrolRuntime(String taskCode);
+
   Future<void> setInitialPose({required MapPoint pose});
   Future<void> sendNavGoal({required MapPoint goal});
   Future<void> setRobotMode({required String robotId, required RobotMode mode});
@@ -559,6 +572,23 @@ class CloudRepository extends TcpCarRepository {
     return _decode(response);
   }
 
+  Future<dynamic> _putJson(String path, Map<String, Object?> body) async {
+    final response = await http
+        .put(
+          _uri(path),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 30));
+    return _decode(response);
+  }
+
+  Future<dynamic> _deleteJson(String path) async {
+    final response =
+        await http.delete(_uri(path)).timeout(const Duration(seconds: 30));
+    return _decode(response);
+  }
+
   dynamic _decode(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('HTTP ${response.statusCode}: ${response.body}');
@@ -753,6 +783,83 @@ class CloudRepository extends TcpCarRepository {
       'yaw': goal.yaw,
       'frame_id': 'map',
     });
+  }
+
+  @override
+  Future<List<PatrolTask>> listPatrolTasks() async {
+    final json = await _getJson('/api/patrol/tasks') as Map<String, dynamic>;
+    final items = (json['items'] as List? ?? const []);
+    return items
+        .map((item) =>
+            _patrolTaskFromJson((item as Map).cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<PatrolTask> createPatrolTask({
+    required String name,
+    required String robotCode,
+    required List<PatrolWaypointConfig> waypoints,
+    int loopCount = 1,
+  }) async {
+    final json = await _postJson('/api/patrol/tasks', {
+      'task_name': name,
+      'robot_code': robotCode,
+      'waypoints': waypoints
+          .map((w) => {
+                'seq': w.seq,
+                'x': w.point.x,
+                'y': w.point.y,
+                'yaw': w.point.yaw,
+                'name': w.name,
+              })
+          .toList(growable: false),
+      'loop_count': loopCount,
+      'return_to_start': true,
+    }) as Map<String, dynamic>;
+    return _patrolTaskFromJson(json);
+  }
+
+  @override
+  Future<PatrolTask> updatePatrolTask(PatrolTask task) async {
+    final json = await _putJson('/api/patrol/tasks/${task.taskCode}', {
+      'task_name': task.name,
+      'robot_code': task.robotCode,
+      'waypoints': task.waypoints
+          .map((w) => {
+                'seq': w.seq,
+                'x': w.point.x,
+                'y': w.point.y,
+                'yaw': w.point.yaw,
+                'name': w.name,
+              })
+          .toList(growable: false),
+      'loop_count': task.loopCount,
+      'return_to_start': true,
+    }) as Map<String, dynamic>;
+    return _patrolTaskFromJson(json);
+  }
+
+  @override
+  Future<void> deletePatrolTask(String taskCode) async {
+    await _deleteJson('/api/patrol/tasks/$taskCode');
+  }
+
+  @override
+  Future<void> startPatrolTask(String taskCode) async {
+    await _postJson('/api/patrol/tasks/$taskCode/start', <String, Object?>{});
+  }
+
+  @override
+  Future<void> stopPatrolTask(String taskCode) async {
+    await _postJson('/api/patrol/tasks/$taskCode/stop', <String, Object?>{});
+  }
+
+  @override
+  Future<PatrolRuntime?> getPatrolRuntime(String taskCode) async {
+    final json = await _getJson('/api/patrol/tasks/$taskCode/runtime');
+    if (json == null) return null;
+    return _patrolRuntimeFromJson((json as Map).cast<String, dynamic>());
   }
 
   @override
@@ -1034,6 +1141,63 @@ class CloudRepository extends TcpCarRepository {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
+
+  PatrolTask _patrolTaskFromJson(Map<String, dynamic> json) {
+    final wps = (json['waypoints'] as List? ?? const []).map((item) {
+      final wp = (item as Map).cast<String, dynamic>();
+      return PatrolWaypointConfig(
+        seq: _asInt(wp['seq']),
+        name: (wp['name'] ?? '').toString(),
+        point: MapPoint(
+          x: _asDouble(wp['x']),
+          y: _asDouble(wp['y']),
+          yaw: _asDouble(wp['yaw']),
+        ),
+      );
+    }).toList(growable: false);
+    return PatrolTask(
+      taskCode: (json['task_code'] ?? '').toString(),
+      name: (json['task_name'] ?? '').toString(),
+      robotCode: (json['robot_code'] ?? 'robot_001').toString(),
+      waypoints: wps,
+      loopCount: _asInt(json['loop_count']),
+      status: (json['status'] ?? 'draft').toString(),
+    );
+  }
+
+  PatrolRuntime _patrolRuntimeFromJson(Map<String, dynamic> json) {
+    final goal = json['current_goal'];
+    final pose = json['last_pose'];
+    final currentGoal = goal is Map
+        ? PatrolWaypointConfig(
+            seq: _asInt(goal['seq']),
+            name: (goal['name'] ?? '').toString(),
+            point: MapPoint(
+              x: _asDouble(goal['x']),
+              y: _asDouble(goal['y']),
+              yaw: _asDouble(goal['yaw']),
+            ),
+          )
+        : null;
+    final lastPose = pose is Map
+        ? MapPoint(
+            x: _asDouble(pose['x']),
+            y: _asDouble(pose['y']),
+            yaw: _asDouble(pose['yaw']),
+          )
+        : null;
+    return PatrolRuntime(
+      taskCode: (json['task_code'] ?? '').toString(),
+      running: json['running'] == true,
+      state: (json['state'] ?? '').toString(),
+      robotCode: (json['robot_code'] ?? '').toString(),
+      currentSeq:
+          json['current_seq'] == null ? null : _asInt(json['current_seq']),
+      currentGoal: currentGoal,
+      lastPose: lastPose,
+      message: json['message']?.toString(),
+    );
+  }
 }
 
 enum _CarDirection {
@@ -1057,6 +1221,8 @@ class MockRepository implements Repository {
   final List<AlarmEvent> _alarms = [];
   final List<Waypoint> _waypoints = [];
   final List<PatrolRoute> _routes = [];
+  final List<PatrolTask> _patrolTasks = [];
+  final Map<String, PatrolRuntime> _patrolRuntime = {};
   bool _monitorRunning = false;
 
   MockRepository() {
@@ -1109,6 +1275,33 @@ class MockRepository implements Repository {
         id: 'rt_1',
         name: '默认巡检路线',
         waypointIds: ['wp_1', 'wp_3', 'wp_2'],
+      ),
+    ]);
+
+    _patrolTasks.addAll([
+      const PatrolTask(
+        taskCode: 'task_1',
+        name: '默认巡航任务',
+        robotCode: 'robot_001',
+        waypoints: [
+          PatrolWaypointConfig(
+            seq: 1,
+            name: '入口',
+            point: MapPoint(x: 2.5, y: 1.1, yaw: 0),
+          ),
+          PatrolWaypointConfig(
+            seq: 2,
+            name: '地下通道',
+            point: MapPoint(x: 6.6, y: 9.8, yaw: 3.14),
+          ),
+          PatrolWaypointConfig(
+            seq: 3,
+            name: '停车区 A',
+            point: MapPoint(x: 10.2, y: 3.4, yaw: 1.57),
+          ),
+        ],
+        loopCount: 1,
+        status: 'draft',
       ),
     ]);
 
@@ -1331,6 +1524,109 @@ class MockRepository implements Repository {
   Future<void> deleteRoute(String id) async {
     _routes.removeWhere((r) => r.id == id);
     await _delay(null);
+  }
+
+  @override
+  Future<List<PatrolTask>> listPatrolTasks() async {
+    return _delay(List<PatrolTask>.unmodifiable(_patrolTasks));
+  }
+
+  @override
+  Future<PatrolTask> createPatrolTask({
+    required String name,
+    required String robotCode,
+    required List<PatrolWaypointConfig> waypoints,
+    int loopCount = 1,
+  }) async {
+    final task = PatrolTask(
+      taskCode:
+          'task_${DateTime.now().millisecondsSinceEpoch}_${_rng.nextInt(999)}',
+      name: name.trim(),
+      robotCode: robotCode.trim(),
+      waypoints: waypoints,
+      loopCount: loopCount,
+      status: 'draft',
+    );
+    _patrolTasks.add(task);
+    await _delay(null);
+    return task;
+  }
+
+  @override
+  Future<PatrolTask> updatePatrolTask(PatrolTask task) async {
+    final idx = _patrolTasks.indexWhere((t) => t.taskCode == task.taskCode);
+    if (idx < 0) {
+      _patrolTasks.add(task);
+    } else {
+      _patrolTasks[idx] = task;
+    }
+    await _delay(null);
+    return task;
+  }
+
+  @override
+  Future<void> deletePatrolTask(String taskCode) async {
+    _patrolTasks.removeWhere((t) => t.taskCode == taskCode);
+    _patrolRuntime.remove(taskCode);
+    await _delay(null);
+  }
+
+  @override
+  Future<void> startPatrolTask(String taskCode) async {
+    final idx = _patrolTasks.indexWhere((t) => t.taskCode == taskCode);
+    if (idx < 0) throw StateError('Task not found: $taskCode');
+    final current = _patrolTasks[idx];
+    _patrolTasks[idx] = PatrolTask(
+      taskCode: current.taskCode,
+      name: current.name,
+      robotCode: current.robotCode,
+      waypoints: current.waypoints,
+      loopCount: current.loopCount,
+      status: 'running',
+    );
+    _patrolRuntime[taskCode] = PatrolRuntime(
+      taskCode: taskCode,
+      running: true,
+      state: 'running',
+      robotCode: current.robotCode,
+      currentSeq: null,
+      currentGoal: null,
+      lastPose: null,
+      message: 'mock running',
+    );
+    await _delay(null);
+  }
+
+  @override
+  Future<void> stopPatrolTask(String taskCode) async {
+    final idx = _patrolTasks.indexWhere((t) => t.taskCode == taskCode);
+    if (idx >= 0) {
+      final current = _patrolTasks[idx];
+      _patrolTasks[idx] = PatrolTask(
+        taskCode: current.taskCode,
+        name: current.name,
+        robotCode: current.robotCode,
+        waypoints: current.waypoints,
+        loopCount: current.loopCount,
+        status: 'cancelled',
+      );
+    }
+    _patrolRuntime[taskCode] = PatrolRuntime(
+      taskCode: taskCode,
+      running: false,
+      state: 'cancelled',
+      robotCode: _patrolRuntime[taskCode]?.robotCode ?? 'robot_001',
+      currentSeq: _patrolRuntime[taskCode]?.currentSeq,
+      currentGoal: _patrolRuntime[taskCode]?.currentGoal,
+      lastPose: _patrolRuntime[taskCode]?.lastPose,
+      message: 'mock cancelled',
+    );
+    await _delay(null);
+  }
+
+  @override
+  Future<PatrolRuntime?> getPatrolRuntime(String taskCode) async {
+    return _delay(_patrolRuntime[taskCode]);
   }
 
   @override

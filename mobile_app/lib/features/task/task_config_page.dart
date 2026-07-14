@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -14,8 +12,7 @@ class TaskConfigPage extends StatefulWidget {
 }
 
 class _TaskConfigPageState extends State<TaskConfigPage> {
-  late Future<List<Waypoint>> _waypointsFuture;
-  late Future<List<PatrolRoute>> _routesFuture;
+  late Future<List<PatrolTask>> _tasksFuture;
 
   @override
   void initState() {
@@ -25,50 +22,77 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
 
   void _reload() {
     final repo = context.read<Repository>();
-    _waypointsFuture = repo.listWaypoints();
-    _routesFuture = repo.listRoutes();
+    _tasksFuture = repo.listPatrolTasks();
   }
 
   Future<void> _refresh() async {
     setState(_reload);
-    await Future.wait([_waypointsFuture, _routesFuture]);
+    await _tasksFuture;
   }
 
-  Future<void> _editWaypoint([Waypoint? waypoint]) async {
-    final result = await showDialog<Waypoint>(
+  Future<void> _editTask([PatrolTask? task]) async {
+    final result = await showDialog<_PatrolTaskDraft>(
       context: context,
-      builder: (context) => _WaypointDialog(initial: waypoint),
+      builder: (context) => _PatrolTaskDialog(initial: task),
     );
     if (result == null) return;
     if (!mounted) return;
-    await context.read<Repository>().upsertWaypoint(result);
+    final repo = context.read<Repository>();
+    if (result.taskCode == null) {
+      await repo.createPatrolTask(
+        name: result.name,
+        robotCode: result.robotCode,
+        waypoints: result.waypoints,
+        loopCount: result.loopCount,
+      );
+    } else {
+      await repo.updatePatrolTask(
+        PatrolTask(
+          taskCode: result.taskCode!,
+          name: result.name,
+          robotCode: result.robotCode,
+          waypoints: result.waypoints,
+          loopCount: result.loopCount,
+          status: task?.status ?? 'draft',
+        ),
+      );
+    }
     await _refresh();
   }
 
-  Future<void> _deleteWaypoint(String id) async {
-    await context.read<Repository>().deleteWaypoint(id);
+  Future<void> _deleteTask(String taskCode) async {
+    await context.read<Repository>().deletePatrolTask(taskCode);
     if (!mounted) return;
     await _refresh();
   }
 
-  Future<void> _editRoute({
-    PatrolRoute? route,
-    required List<Waypoint> waypoints,
-  }) async {
-    final result = await showDialog<PatrolRoute>(
-      context: context,
-      builder: (context) => _RouteDialog(initial: route, waypoints: waypoints),
-    );
-    if (result == null) return;
+  Future<void> _startTask(String taskCode) async {
+    await context.read<Repository>().startPatrolTask(taskCode);
     if (!mounted) return;
-    await context.read<Repository>().upsertRoute(result);
     await _refresh();
   }
 
-  Future<void> _deleteRoute(String id) async {
-    await context.read<Repository>().deleteRoute(id);
+  Future<void> _stopTask(String taskCode) async {
+    await context.read<Repository>().stopPatrolTask(taskCode);
     if (!mounted) return;
     await _refresh();
+  }
+
+  Future<void> _showRuntime(String taskCode) async {
+    try {
+      final runtime =
+          await context.read<Repository>().getPatrolRuntime(taskCode);
+      if (!mounted) return;
+      final message = runtime == null
+          ? '暂无运行态（可能未启动或后端已重启）'
+          : 'state=${runtime.state} running=${runtime.running} seq=${runtime.currentSeq ?? "-"} ${runtime.message ?? ""}';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('读取运行态失败：$e')));
+    }
   }
 
   @override
@@ -82,8 +106,32 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            FutureBuilder<List<Waypoint>>(
-              future: _waypointsFuture,
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('定时巡检（占位）', style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    const _KvRow(k: '巡检时段', v: '22:00 - 06:00'),
+                    const _KvRow(k: '循环次数', v: '3'),
+                    const _KvRow(k: '视觉检测', v: '开启'),
+                    const SizedBox(height: 8),
+                    FilledButton.tonalIcon(
+                      onPressed: () => ScaffoldMessenger.of(context)
+                          .showSnackBar(
+                              const SnackBar(content: Text('定时巡检配置（待后端接口）'))),
+                      icon: const Icon(Icons.schedule),
+                      label: const Text('编辑定时配置'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<List<PatrolTask>>(
+              future: _tasksFuture,
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(
@@ -103,37 +151,70 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('巡检航点', style: theme.textTheme.titleSmall),
+                            Text('巡航任务', style: theme.textTheme.titleSmall),
                             IconButton(
-                              onPressed: () => _editWaypoint(),
+                              onPressed: () => _editTask(),
                               icon: const Icon(Icons.add),
-                              tooltip: '新增航点',
+                              tooltip: '新增任务',
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
                         if (list.isEmpty)
-                          Text('暂无航点', style: theme.textTheme.bodyMedium)
+                          Text('暂无任务', style: theme.textTheme.bodyMedium)
                         else
                           ...list.map(
-                            (w) => ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(w.name),
-                              subtitle: Text(
-                                  '(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
-                              trailing: Wrap(
-                                spacing: 6,
-                                children: [
-                                  IconButton(
-                                    onPressed: () => _editWaypoint(w),
-                                    icon: const Icon(Icons.edit_outlined),
+                            (t) => Column(
+                              children: [
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(t.name),
+                                  subtitle: Text(
+                                    'robot=${t.robotCode} 航点=${t.waypoints.length} loop=${t.loopCount} status=${t.status}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  IconButton(
-                                    onPressed: () => _deleteWaypoint(w.id),
-                                    icon: const Icon(Icons.delete_outline),
+                                  trailing: Wrap(
+                                    spacing: 6,
+                                    children: [
+                                      IconButton(
+                                        onPressed: () =>
+                                            _showRuntime(t.taskCode),
+                                        icon: const Icon(Icons.info_outline),
+                                      ),
+                                      IconButton(
+                                        onPressed: () => _editTask(t),
+                                        icon: const Icon(Icons.edit_outlined),
+                                      ),
+                                      IconButton(
+                                        onPressed: () =>
+                                            _deleteTask(t.taskCode),
+                                        icon: const Icon(Icons.delete_outline),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.tonalIcon(
+                                        onPressed: () => _startTask(t.taskCode),
+                                        icon: const Icon(Icons.play_arrow),
+                                        label: const Text('启动巡航'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () => _stopTask(t.taskCode),
+                                        icon: const Icon(Icons.stop),
+                                        label: const Text('停止巡航'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 18),
+                              ],
                             ),
                           ),
                       ],
@@ -142,75 +223,6 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            FutureBuilder<List<PatrolRoute>>(
-              future: _routesFuture,
-              builder: (context, routeSnap) {
-                if (!routeSnap.hasData) return const SizedBox.shrink();
-                return FutureBuilder<List<Waypoint>>(
-                  future: _waypointsFuture,
-                  builder: (context, wpSnap) {
-                    if (!wpSnap.hasData) return const SizedBox.shrink();
-                    final routes = routeSnap.data!;
-                    final waypoints = wpSnap.data!;
-                    final wpMap = {for (final w in waypoints) w.id: w};
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('巡逻路线', style: theme.textTheme.titleSmall),
-                                IconButton(
-                                  onPressed: () =>
-                                      _editRoute(waypoints: waypoints),
-                                  icon: const Icon(Icons.add),
-                                  tooltip: '新增路线',
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            if (routes.isEmpty)
-                              Text('暂无路线', style: theme.textTheme.bodyMedium)
-                            else
-                              ...routes.map(
-                                (r) => ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(r.name),
-                                  subtitle: Text(
-                                    r.waypointIds
-                                        .map((id) => wpMap[id]?.name ?? id)
-                                        .join(' -> '),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  trailing: Wrap(
-                                    spacing: 6,
-                                    children: [
-                                      IconButton(
-                                        onPressed: () => _editRoute(
-                                            route: r, waypoints: waypoints),
-                                        icon: const Icon(Icons.edit_outlined),
-                                      ),
-                                      IconButton(
-                                        onPressed: () => _deleteRoute(r.id),
-                                        icon: const Icon(Icons.delete_outline),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
           ],
         ),
       ),
@@ -218,145 +230,116 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
   }
 }
 
-class _WaypointDialog extends StatefulWidget {
-  final Waypoint? initial;
+class _PatrolTaskDraft {
+  final String? taskCode;
+  final String name;
+  final String robotCode;
+  final int loopCount;
+  final List<PatrolWaypointConfig> waypoints;
 
-  const _WaypointDialog({required this.initial});
-
-  @override
-  State<_WaypointDialog> createState() => _WaypointDialogState();
-}
-
-class _WaypointDialogState extends State<_WaypointDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _name;
-  late final TextEditingController _x;
-  late final TextEditingController _y;
-
-  @override
-  void initState() {
-    super.initState();
-    _name = TextEditingController(text: widget.initial?.name ?? '');
-    _x = TextEditingController(text: widget.initial?.point.x.toString() ?? '0');
-    _y = TextEditingController(text: widget.initial?.point.y.toString() ?? '0');
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _x.dispose();
-    _y.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.initial == null ? '新增航点' : '编辑航点'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _name,
-              decoration: const InputDecoration(
-                  labelText: '名称', border: OutlineInputBorder()),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? '请输入名称' : null,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _x,
-                    decoration: const InputDecoration(
-                        labelText: 'X', border: OutlineInputBorder()),
-                    keyboardType: TextInputType.number,
-                    validator: (v) =>
-                        double.tryParse(v ?? '') == null ? '无效' : null,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    controller: _y,
-                    decoration: const InputDecoration(
-                        labelText: 'Y', border: OutlineInputBorder()),
-                    keyboardType: TextInputType.number,
-                    validator: (v) =>
-                        double.tryParse(v ?? '') == null ? '无效' : null,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消')),
-        FilledButton(
-          onPressed: () {
-            final ok = _formKey.currentState?.validate() ?? false;
-            if (!ok) return;
-            final id = widget.initial?.id ??
-                'wp_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
-            Navigator.of(context).pop(
-              Waypoint(
-                id: id,
-                name: _name.text.trim(),
-                point: MapPoint(
-                    x: double.parse(_x.text), y: double.parse(_y.text), yaw: 0),
-              ),
-            );
-          },
-          child: const Text('保存'),
-        ),
-      ],
-    );
-  }
-}
-
-class _RouteDialog extends StatefulWidget {
-  final PatrolRoute? initial;
-  final List<Waypoint> waypoints;
-
-  const _RouteDialog({
-    required this.initial,
+  const _PatrolTaskDraft({
+    required this.taskCode,
+    required this.name,
+    required this.robotCode,
+    required this.loopCount,
     required this.waypoints,
   });
-
-  @override
-  State<_RouteDialog> createState() => _RouteDialogState();
 }
 
-class _RouteDialogState extends State<_RouteDialog> {
+class _PatrolTaskDialog extends StatefulWidget {
+  final PatrolTask? initial;
+
+  const _PatrolTaskDialog({required this.initial});
+
+  @override
+  State<_PatrolTaskDialog> createState() => _PatrolTaskDialogState();
+}
+
+class _PatrolTaskDialogState extends State<_PatrolTaskDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
-  late final Set<String> _selected;
+  late final TextEditingController _robotCode;
+  late final TextEditingController _loopCount;
+  late List<PatrolWaypointConfig> _waypoints;
 
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.initial?.name ?? '');
-    _selected = widget.initial?.waypointIds.toSet() ?? <String>{};
+    _robotCode =
+        TextEditingController(text: widget.initial?.robotCode ?? 'robot_001');
+    _loopCount = TextEditingController(
+        text: (widget.initial?.loopCount ?? 1).toString());
+    _waypoints =
+        List<PatrolWaypointConfig>.from(widget.initial?.waypoints ?? const []);
+    _normalizeSeq();
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _robotCode.dispose();
+    _loopCount.dispose();
     super.dispose();
+  }
+
+  void _normalizeSeq() {
+    _waypoints = _waypoints
+        .asMap()
+        .entries
+        .map((e) => PatrolWaypointConfig(
+            seq: e.key + 1, name: e.value.name, point: e.value.point))
+        .toList(growable: false);
+  }
+
+  Future<void> _addWaypoint([PatrolWaypointConfig? initial]) async {
+    final result = await showDialog<PatrolWaypointConfig>(
+      context: context,
+      builder: (context) => _PatrolWaypointDialog(initial: initial),
+    );
+    if (result == null) return;
+    setState(() {
+      if (initial == null) {
+        _waypoints = [..._waypoints, result];
+      } else {
+        final idx = _waypoints.indexWhere((w) => w.seq == initial.seq);
+        if (idx >= 0) {
+          final updated = PatrolWaypointConfig(
+              seq: _waypoints[idx].seq, name: result.name, point: result.point);
+          _waypoints = [..._waypoints]..[idx] = updated;
+        }
+      }
+      _normalizeSeq();
+    });
+  }
+
+  void _removeWaypoint(int seq) {
+    setState(() {
+      _waypoints =
+          _waypoints.where((w) => w.seq != seq).toList(growable: false);
+      _normalizeSeq();
+    });
+  }
+
+  void _moveWaypoint(int index, int delta) {
+    final next = index + delta;
+    if (next < 0 || next >= _waypoints.length) return;
+    setState(() {
+      final list = [..._waypoints];
+      final tmp = list[index];
+      list[index] = list[next];
+      list[next] = tmp;
+      _waypoints = list;
+      _normalizeSeq();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.initial == null ? '新增路线' : '编辑路线'),
+      title: Text(widget.initial == null ? '新增巡航任务' : '编辑巡航任务'),
       content: SizedBox(
-        width: 420,
+        width: 520,
         child: Form(
           key: _formKey,
           child: Column(
@@ -365,37 +348,84 @@ class _RouteDialogState extends State<_RouteDialog> {
               TextFormField(
                 controller: _name,
                 decoration: const InputDecoration(
-                    labelText: '名称', border: OutlineInputBorder()),
+                    labelText: '任务名称', border: OutlineInputBorder()),
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? '请输入名称' : null,
+                    (v == null || v.trim().isEmpty) ? '请输入任务名称' : null,
               ),
               const SizedBox(height: 10),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('选择航点（顺序为暂存顺序，后续可做拖拽排序）'),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _robotCode,
+                      decoration: const InputDecoration(
+                          labelText: 'robot_code',
+                          border: OutlineInputBorder()),
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? '请输入 robot_code'
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      controller: _loopCount,
+                      decoration: const InputDecoration(
+                          labelText: '循环次数', border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                      validator: (v) =>
+                          int.tryParse(v ?? '') == null ? '无效' : null,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('航点（顺序即执行顺序）'),
+                  IconButton(
+                      onPressed: () => _addWaypoint(),
+                      icon: const Icon(Icons.add)),
+                ],
+              ),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 260),
                 child: ListView(
                   shrinkWrap: true,
-                  children: widget.waypoints
+                  children: _waypoints
+                      .asMap()
+                      .entries
                       .map(
-                        (w) => CheckboxListTile(
-                          value: _selected.contains(w.id),
-                          onChanged: (v) {
-                            setState(() {
-                              if (v == true) {
-                                _selected.add(w.id);
-                              } else {
-                                _selected.remove(w.id);
-                              }
-                            });
-                          },
-                          title: Text(w.name),
+                        (e) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                              '${e.value.seq}. ${e.value.name.isEmpty ? "航点" : e.value.name}'),
                           subtitle: Text(
-                              '(${w.point.x.toStringAsFixed(2)}, ${w.point.y.toStringAsFixed(2)})'),
-                          controlAffinity: ListTileControlAffinity.leading,
+                            '(${e.value.point.x.toStringAsFixed(2)}, ${e.value.point.y.toStringAsFixed(2)}) yaw=${e.value.point.yaw.toStringAsFixed(2)}',
+                          ),
+                          trailing: Wrap(
+                            spacing: 4,
+                            children: [
+                              IconButton(
+                                onPressed: () => _moveWaypoint(e.key, -1),
+                                icon: const Icon(Icons.arrow_upward),
+                              ),
+                              IconButton(
+                                onPressed: () => _moveWaypoint(e.key, 1),
+                                icon: const Icon(Icons.arrow_downward),
+                              ),
+                              IconButton(
+                                onPressed: () => _addWaypoint(e.value),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                              IconButton(
+                                onPressed: () => _removeWaypoint(e.value.seq),
+                                icon: const Icon(Icons.delete_outline),
+                              ),
+                            ],
+                          ),
                         ),
                       )
                       .toList(),
@@ -413,24 +443,168 @@ class _RouteDialogState extends State<_RouteDialog> {
           onPressed: () {
             final ok = _formKey.currentState?.validate() ?? false;
             if (!ok) return;
-            if (_selected.length < 2) {
+            if (_waypoints.length < 2) {
               ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('至少选择 2 个航点')));
+                  .showSnackBar(const SnackBar(content: Text('至少需要 2 个航点')));
               return;
             }
-            final id = widget.initial?.id ??
-                'rt_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999)}';
+            final loopCount = int.tryParse(_loopCount.text) ?? 1;
             Navigator.of(context).pop(
-              PatrolRoute(
-                id: id,
+              _PatrolTaskDraft(
+                taskCode: widget.initial?.taskCode,
                 name: _name.text.trim(),
-                waypointIds: _selected.toList(),
+                robotCode: _robotCode.text.trim(),
+                loopCount: loopCount,
+                waypoints: _waypoints,
               ),
             );
           },
           child: const Text('保存'),
         ),
       ],
+    );
+  }
+}
+
+class _PatrolWaypointDialog extends StatefulWidget {
+  final PatrolWaypointConfig? initial;
+
+  const _PatrolWaypointDialog({required this.initial});
+
+  @override
+  State<_PatrolWaypointDialog> createState() => _PatrolWaypointDialogState();
+}
+
+class _PatrolWaypointDialogState extends State<_PatrolWaypointDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  late final TextEditingController _x;
+  late final TextEditingController _y;
+  late final TextEditingController _yaw;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.initial?.name ?? '');
+    _x = TextEditingController(text: widget.initial?.point.x.toString() ?? '0');
+    _y = TextEditingController(text: widget.initial?.point.y.toString() ?? '0');
+    _yaw = TextEditingController(
+        text: widget.initial?.point.yaw.toString() ?? '0');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _x.dispose();
+    _y.dispose();
+    _yaw.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.initial == null ? '新增航点' : '编辑航点'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _name,
+                decoration: const InputDecoration(
+                    labelText: '名称', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _x,
+                      decoration: const InputDecoration(
+                          labelText: 'X', border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                      validator: (v) =>
+                          double.tryParse(v ?? '') == null ? '无效' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _y,
+                      decoration: const InputDecoration(
+                          labelText: 'Y', border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                      validator: (v) =>
+                          double.tryParse(v ?? '') == null ? '无效' : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _yaw,
+                decoration: const InputDecoration(
+                    labelText: 'Yaw(rad)', border: OutlineInputBorder()),
+                keyboardType: TextInputType.number,
+                validator: (v) =>
+                    double.tryParse(v ?? '') == null ? '无效' : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消')),
+        FilledButton(
+          onPressed: () {
+            final ok = _formKey.currentState?.validate() ?? false;
+            if (!ok) return;
+            Navigator.of(context).pop(
+              PatrolWaypointConfig(
+                seq: widget.initial?.seq ?? 1,
+                name: _name.text.trim(),
+                point: MapPoint(
+                  x: double.parse(_x.text),
+                  y: double.parse(_y.text),
+                  yaw: double.parse(_yaw.text),
+                ),
+              ),
+            );
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _KvRow extends StatelessWidget {
+  final String k;
+  final String v;
+
+  const _KvRow({required this.k, required this.v});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(k, style: theme.textTheme.bodyMedium),
+          Text(
+            v,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 }

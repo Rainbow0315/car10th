@@ -215,6 +215,58 @@ class PatrolRoute {
   });
 }
 
+class PatrolWaypointConfig {
+  final int seq;
+  final String name;
+  final MapPoint point;
+
+  const PatrolWaypointConfig({
+    required this.seq,
+    required this.name,
+    required this.point,
+  });
+}
+
+class PatrolTask {
+  final String taskCode;
+  final String name;
+  final String robotCode;
+  final List<PatrolWaypointConfig> waypoints;
+  final int loopCount;
+  final String status;
+
+  const PatrolTask({
+    required this.taskCode,
+    required this.name,
+    required this.robotCode,
+    required this.waypoints,
+    required this.loopCount,
+    required this.status,
+  });
+}
+
+class PatrolRuntime {
+  final String taskCode;
+  final bool running;
+  final String state;
+  final String robotCode;
+  final int? currentSeq;
+  final PatrolWaypointConfig? currentGoal;
+  final MapPoint? lastPose;
+  final String? message;
+
+  const PatrolRuntime({
+    required this.taskCode,
+    required this.running,
+    required this.state,
+    required this.robotCode,
+    required this.currentSeq,
+    required this.currentGoal,
+    required this.lastPose,
+    required this.message,
+  });
+}
+
 class ChatMessage {
   final String id;
   final DateTime timestamp;
