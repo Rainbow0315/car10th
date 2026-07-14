@@ -13,13 +13,18 @@ $bundlePath = Join-Path $env:TEMP $bundleName
 
 $files = @(
     "backend/apps/ai_service/main.py",
+    "backend/apps/ai_service/detectors/crack_detector.py",
+    "backend/apps/ai_service/detectors/yolov7_detector.py",
     "backend/apps/ai_service/pipelines/inspection.py",
     "backend/apps/ai_service/ros_image_capture.py",
     "backend/apps/web_api/routers/inspection.py",
+    "backend/apps/web_api/services/inspection_alarm_service.py",
     "backend/apps/web_api/services/inspection_service.py",
+    "backend/apps/web_api/services/inspection_monitor_service.py",
     "backend/common/config/settings.py",
     "backend/common/schemas/inspection.py",
     "docs/app_camera_yolo_live_check.md",
+    "docs/yolo_input_pipeline.md",
     "scripts/robot_camera_yolo_benchmark.sh"
 )
 
