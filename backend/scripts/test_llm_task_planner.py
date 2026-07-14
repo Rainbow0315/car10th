@@ -78,6 +78,7 @@ def install_lightweight_stubs() -> None:
         llm_api_key="secret-key-for-test",
         llm_api_base="",
         llm_model="gpt-5.4-mini",
+        llm_planner_timeout_sec=8.0,
         fleet_robot_offline_sec=10,
         fleet_command_ack_timeout_sec=5,
     )
@@ -192,6 +193,40 @@ async def run_tests() -> None:
         [{"tool": "fleet.plate_verify", "arguments": {"verifier_robot_code": "robot_001"}}]
     )
     assert unsafe_steps == []
+
+    normalized_motion_steps = service._steps_from_llm(
+        [
+            {
+                "tool": "fleet.motion",
+                "arguments": {
+                    "action": "move_forward",
+                    "duration_seconds": "3秒",
+                },
+            }
+        ],
+        request=LlmTaskPlanRequest(message="让 robot_001 往前走 3 秒", allow_llm=True),
+    )
+    assert len(normalized_motion_steps) == 1
+    assert normalized_motion_steps[0].tool == "fleet.motion"
+    assert normalized_motion_steps[0].arguments["robot_code"] == "robot_001"
+    assert normalized_motion_steps[0].arguments["action"] == "forward"
+    assert normalized_motion_steps[0].arguments["duration_seconds"] == 3.0
+
+    generic_motion_steps = service._steps_from_llm(
+        [{"tool": "fleet.motion", "arguments": {"duration_seconds": "1s"}}],
+        request=LlmTaskPlanRequest(message="让 robot_001 动 1 秒", allow_llm=True),
+    )
+    assert len(generic_motion_steps) == 1
+    assert generic_motion_steps[0].arguments["action"] == "forward"
+    assert generic_motion_steps[0].arguments["duration_seconds"] == 1.0
+
+    normalized_stop_steps = service._steps_from_llm(
+        [{"tool": "fleet.safety_stop", "arguments": {"robot_code": "robot_001"}}],
+        request=LlmTaskPlanRequest(message="robot_001 停车", allow_llm=True),
+    )
+    assert len(normalized_stop_steps) == 1
+    assert normalized_stop_steps[0].tool == "fleet.safety_stop"
+    assert normalized_stop_steps[0].arguments["robot_codes"] == ["robot_001"]
 
     from apps.web_api.routers import llm as llm_router
 

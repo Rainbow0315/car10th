@@ -56,15 +56,15 @@ class LlmTaskService:
         source = "rule_fallback"
         llm_error: Optional[str] = None
 
-        if self._is_direct_motion_request(request.message) or self._is_stop_request(request.message):
-            steps = self._plan_with_rules(request)
-        elif request.allow_llm and settings.llm_api_key and settings.llm_api_base:
+        if request.allow_llm and settings.llm_api_key and settings.llm_api_base:
             try:
                 steps = await self._plan_with_llm(request, robot_context)
                 source = "llm"
             except Exception as exc:
                 llm_error = self._safe_error(exc)
                 steps = []
+        else:
+            steps = self._plan_with_rules(request)
 
         if not steps:
             steps = self._plan_with_rules(request)
@@ -474,19 +474,79 @@ class LlmTaskService:
             "output_schema": {
                 "steps": [
                     {
-                        "tool": "fleet.safety_stop",
-                        "arguments": {"robot_codes": ["robot_001"]},
+                        "tool": "fleet.motion",
+                        "arguments": {
+                            "robot_code": "robot_001",
+                            "action": "forward",
+                            "duration_seconds": 3,
+                            "reason": "user asked robot_001 to move forward for 3 seconds",
+                        },
                     }
                 ]
             },
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
-                "For direct app-like motion requests such as forward, backward, left, right, rotate left, or rotate right, use fleet.motion with action and the requested duration_seconds.",
-                "Use fleet.safety_stop only when the user asks to stop, brake, halt, or emergency-stop.",
+                "You must choose the best available tool yourself from the user's natural language.",
+                "For direct app-like single-robot motion requests, use fleet.motion.",
+                "fleet.motion action must be exactly one of: forward, backward, left, right, rotate_left, rotate_right.",
+                "If the user asks a robot to move/go/run without a direction, choose fleet.motion with action forward.",
+                "Preserve the user's requested duration as numeric duration_seconds. If the user says 1s use 1, if 3秒 use 3.",
+                "If the robot is omitted, use the requested robot context or the ready robot in robot_context.",
+                "Use fleet.safety_stop only when the user explicitly asks to stop, brake, halt, emergency-stop, or says the robot is unsafe.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
+            ],
+            "examples": [
+                {
+                    "user": "让 robot_001 往前走 3 秒",
+                    "steps": [
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_code": "robot_001",
+                                "action": "forward",
+                                "duration_seconds": 3,
+                            },
+                        }
+                    ],
+                },
+                {
+                    "user": "robot_002 后退 2s",
+                    "steps": [
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_code": "robot_002",
+                                "action": "backward",
+                                "duration_seconds": 2,
+                            },
+                        }
+                    ],
+                },
+                {
+                    "user": "让它右转 1 秒",
+                    "steps": [
+                        {
+                            "tool": "fleet.motion",
+                            "arguments": {
+                                "robot_code": "robot_001",
+                                "action": "rotate_right",
+                                "duration_seconds": 1,
+                            },
+                        }
+                    ],
+                },
+                {
+                    "user": "停车",
+                    "steps": [
+                        {
+                            "tool": "fleet.safety_stop",
+                            "arguments": {"robot_codes": ["robot_001"]},
+                        }
+                    ],
+                },
             ],
         }
         body = {
@@ -499,9 +559,11 @@ class LlmTaskService:
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ],
             "temperature": 0.1,
+            "max_tokens": 500,
             "response_format": {"type": "json_object"},
         }
-        async with httpx.AsyncClient(timeout=20) as client:
+        timeout = httpx.Timeout(settings.llm_planner_timeout_sec, connect=3.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 url,
                 headers={
@@ -514,9 +576,13 @@ class LlmTaskService:
             response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         parsed = json.loads(self._strip_json_fence(content))
-        return self._steps_from_llm(parsed.get("steps") or [])
+        return self._steps_from_llm(parsed.get("steps") or [], request=request)
 
-    def _steps_from_llm(self, raw_steps: list[Any]) -> list[LlmTaskPlanStep]:
+    def _steps_from_llm(
+        self,
+        raw_steps: list[Any],
+        request: Optional[LlmTaskPlanRequest] = None,
+    ) -> list[LlmTaskPlanStep]:
         steps = []
         for index, item in enumerate(raw_steps, start=1):
             if not isinstance(item, dict):
@@ -528,6 +594,7 @@ class LlmTaskService:
             arguments = item.get("arguments")
             if not isinstance(arguments, dict):
                 arguments = {}
+            arguments = self._normalize_llm_arguments(spec, arguments, request)
             if self._missing_required_arguments(spec, arguments):
                 continue
             steps.append(
@@ -541,6 +608,46 @@ class LlmTaskService:
                 )
             )
         return steps
+
+    def _normalize_llm_arguments(
+        self,
+        spec: LlmToolSpec,
+        arguments: Dict[str, Any],
+        request: Optional[LlmTaskPlanRequest],
+    ) -> Dict[str, Any]:
+        normalized = dict(arguments)
+        fallback_robot = self._fallback_robot_code_for_llm(request)
+
+        if spec.name == "fleet.motion":
+            robot_code = normalized.get("robot_code") or normalized.get("robot") or normalized.get("robot_id")
+            if not robot_code and fallback_robot:
+                normalized["robot_code"] = fallback_robot
+            elif robot_code:
+                normalized["robot_code"] = str(robot_code).strip()
+
+            action = self._normalize_motion_action(normalized.get("action") or normalized.get("direction"))
+            if not action and request is not None:
+                action = self._motion_action_from_text(request.message.strip().lower())
+            if not action and request is not None and self._is_generic_motion_request(request.message):
+                action = "forward"
+            if action:
+                normalized["action"] = action
+
+            duration = normalized.get("duration_seconds", normalized.get("duration"))
+            parsed_duration = self._coerce_duration_seconds(duration)
+            if parsed_duration is not None:
+                normalized["duration_seconds"] = parsed_duration
+
+        elif spec.name == "fleet.safety_stop":
+            robot_codes = self._string_list(
+                normalized.get("robot_codes") or normalized.get("robot_code") or normalized.get("robots")
+            )
+            if not robot_codes and fallback_robot:
+                robot_codes = [fallback_robot]
+            if robot_codes:
+                normalized["robot_codes"] = robot_codes
+
+        return normalized
 
     def _plan_with_rules(self, request: LlmTaskPlanRequest) -> list[LlmTaskPlanStep]:
         text = request.message.strip()
@@ -977,6 +1084,102 @@ class LlmTaskService:
             if word in normalized:
                 return seconds
         return 1.0
+
+    def _fallback_robot_code_for_llm(self, request: Optional[LlmTaskPlanRequest]) -> Optional[str]:
+        if request is None:
+            return None
+        explicit = self._first_robot_code(request.message)
+        if explicit:
+            return explicit
+        requested = [code.strip() for code in request.robot_codes if code.strip()]
+        if requested:
+            return requested[0]
+        return self._best_ready_robot_code([])
+
+    def _normalize_motion_action(self, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "forward": "forward",
+            "front": "forward",
+            "ahead": "forward",
+            "go_forward": "forward",
+            "move_forward": "forward",
+            "move": "forward",
+            "go": "forward",
+            "run": "forward",
+            "forwards": "forward",
+            "前进": "forward",
+            "向前": "forward",
+            "往前": "forward",
+            "backward": "backward",
+            "back": "backward",
+            "reverse": "backward",
+            "move_backward": "backward",
+            "go_backward": "backward",
+            "backwards": "backward",
+            "后退": "backward",
+            "倒车": "backward",
+            "向后": "backward",
+            "往后": "backward",
+            "left": "left",
+            "move_left": "left",
+            "strafe_left": "left",
+            "shift_left": "left",
+            "左移": "left",
+            "向左平移": "left",
+            "right": "right",
+            "move_right": "right",
+            "strafe_right": "right",
+            "shift_right": "right",
+            "右移": "right",
+            "向右平移": "right",
+            "rotate_left": "rotate_left",
+            "turn_left": "rotate_left",
+            "spin_left": "rotate_left",
+            "left_turn": "rotate_left",
+            "左转": "rotate_left",
+            "向左转": "rotate_left",
+            "rotate_right": "rotate_right",
+            "turn_right": "rotate_right",
+            "spin_right": "rotate_right",
+            "right_turn": "rotate_right",
+            "右转": "rotate_right",
+            "向右转": "rotate_right",
+        }
+        return aliases.get(normalized)
+
+    def _is_generic_motion_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        stop_words = ["stop", "halt", "brake", "停止", "停车", "刹车", "急停"]
+        if any(word in normalized for word in stop_words):
+            return False
+        motion_words = [
+            "move",
+            "go",
+            "run",
+            "drive",
+            "动",
+            "走",
+            "开一下",
+            "移动",
+            "行驶",
+        ]
+        return any(word in normalized for word in motion_words)
+
+    def _coerce_duration_seconds(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return self._float_in_range(value, 1.0, 0.2, 30.0)
+        text = str(value).strip()
+        if not text:
+            return None
+        numeric_match = re.search(r"\d+(?:\.\d+)?", text)
+        if numeric_match:
+            return self._float_in_range(numeric_match.group(0), 1.0, 0.2, 30.0)
+        return self._duration_seconds(text)
 
     def _string_list(self, value: Any) -> list[str]:
         if isinstance(value, list):
