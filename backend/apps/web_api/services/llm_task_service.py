@@ -160,7 +160,7 @@ class LlmTaskService:
                 step.arguments.get("duration_seconds") or step.arguments.get("duration"),
                 1.0,
                 0.2,
-                2.0,
+                30.0,
             )
             motion["duration"] = duration
             command = self._publish_command(
@@ -181,7 +181,7 @@ class LlmTaskService:
                 step.arguments.get("duration_seconds") or step.arguments.get("duration"),
                 1.0,
                 0.2,
-                2.0,
+                30.0,
             )
             command = self._publish_command(
                 robot_code,
@@ -448,7 +448,7 @@ class LlmTaskService:
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
-                "For direct app-like motion requests such as forward, backward, left, right, rotate left, or rotate right, use fleet.motion with action and optional duration_seconds capped at 2.0.",
+                "For direct app-like motion requests such as forward, backward, left, right, rotate left, or rotate right, use fleet.motion with action and the requested duration_seconds.",
                 "Use fleet.safety_stop only when the user asks to stop, brake, halt, or emergency-stop.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
@@ -785,7 +785,7 @@ class LlmTaskService:
             LlmToolSpec(
                 name="fleet.motion",
                 title="单车短时运动",
-                description="模仿 App 单车控制按钮，只允许 forward/backward/left/right/rotate_left/rotate_right 六种短时动作；可选 duration_seconds，最大 2 秒。",
+                description="模仿 App 单车控制按钮，只允许 forward/backward/left/right/rotate_left/rotate_right 六种动作；可选 duration_seconds，按用户要求的秒数下发。",
                 backend_route="MQTT fleet/command/{robot_code}",
                 command_name="llm_motion",
                 required_arguments=["robot_code", "action"],
@@ -796,7 +796,7 @@ class LlmTaskService:
             LlmToolSpec(
                 name="fleet.nudge_forward",
                 title="安全短距离前进",
-                description="向指定小车下发 nudge_forward，只允许短时、直线前进；可选 duration_seconds，最大 2 秒。",
+                description="向指定小车下发 nudge_forward，直线前进；可选 duration_seconds，按用户要求的秒数下发。",
                 backend_route="MQTT fleet/command/{robot_code}",
                 command_name="nudge_forward",
                 required_arguments=["robot_code"],
@@ -921,16 +921,23 @@ class LlmTaskService:
         normalized = text.strip().lower()
         match = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds|秒)", normalized)
         if match:
-            return self._float_in_range(match.group(1), 1.0, 0.2, 2.0)
+            return self._float_in_range(match.group(1), 1.0, 0.2, 30.0)
 
         word_seconds = {
             "one": 1.0,
             "two": 2.0,
-            "three": 2.0,
+            "three": 3.0,
             "一": 1.0,
             "二": 2.0,
             "两": 2.0,
-            "三": 2.0,
+            "三": 3.0,
+            "四": 4.0,
+            "五": 5.0,
+            "六": 6.0,
+            "七": 7.0,
+            "八": 8.0,
+            "九": 9.0,
+            "十": 10.0,
         }
         for word, seconds in word_seconds.items():
             if word in normalized:

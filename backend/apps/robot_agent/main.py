@@ -217,7 +217,7 @@ class RobotAgent:
                 angular_upper=0.4,
                 duration_fallback=0.8,
                 duration_lower=0.1,
-                duration_upper=2.0,
+                duration_upper=30.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
@@ -255,7 +255,7 @@ class RobotAgent:
                 angular_upper=0.0,
                 duration_fallback=1.0,
                 duration_lower=0.1,
-                duration_upper=2.0,
+                duration_upper=30.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
@@ -295,7 +295,7 @@ class RobotAgent:
                 angular_upper=0.0,
                 duration_fallback=0.8,
                 duration_lower=0.2,
-                duration_upper=2.0,
+                duration_upper=30.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
@@ -435,7 +435,7 @@ class RobotAgent:
             "linear_x": self._float_in_range(motion.get("linear_x"), 0.0, -0.18, 0.18),
             "linear_y": self._float_in_range(motion.get("linear_y"), 0.0, -0.18, 0.18),
             "angular_z": self._float_in_range(motion.get("angular_z"), 0.0, -0.9, 0.9),
-            "duration": self._float_in_range(motion.get("duration"), 1.0, 0.1, 2.0),
+            "duration": self._float_in_range(motion.get("duration"), 1.0, 0.1, 30.0),
             "rate_hz": self._float_in_range(motion.get("rate_hz"), 10.0, 1.0, 15.0),
             "wait_for_subscriber_timeout": 1.0,
         }

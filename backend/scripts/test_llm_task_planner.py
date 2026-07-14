@@ -133,7 +133,12 @@ async def run_tests() -> None:
 
     motion_cases = [
         ("move forward robot_001 for 2 seconds", "forward", 2.0),
+        ("move forward robot_001 for 3 seconds", "forward", 3.0),
+        ("robot_001 前进 5 秒", "forward", 5.0),
+        ("robot_001 前进三秒", "forward", 3.0),
+        ("robot_001 前进五秒", "forward", 5.0),
         ("robot_001 后退 1 秒", "backward", 1.0),
+        ("robot_001 \u540e\u9000 2s", "backward", 2.0),
         ("robot_001 向左移动 0.5 秒", "left", 0.5),
         ("robot_001 向右移动 0.5 秒", "right", 0.5),
         ("robot_001 左转 1 秒", "rotate_left", 1.0),
