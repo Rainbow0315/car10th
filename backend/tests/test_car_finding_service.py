@@ -54,6 +54,32 @@ class CarFindingServiceTests(unittest.TestCase):
         self.assertTrue(result["matched"])
         self.assertEqual(result["expected_normalized_plate"], "\u6CAAA12345")
 
+    def test_verify_plate_compares_input_directly(self):
+        service = CarFindingService()
+        detection = {
+            "results": {
+                "plate": {
+                    "detections": [
+                        {
+                            "label": "plate",
+                            "confidence": 0.91,
+                            "extra": {"plate_number": "\u6CAA A-12345"},
+                        }
+                    ]
+                }
+            }
+        }
+
+        with patch(
+            "apps.web_api.services.car_finding_service.inspection_service.detect_ros_plate",
+            return_value=detection,
+        ):
+            result = service.verify_plate("\u6CAAA12345", "/image_raw", 1.0, "robot_001", "usb_cam")
+
+        self.assertTrue(result["matched"])
+        self.assertEqual(result["expected_plate"], "\u6CAAA12345")
+        self.assertEqual(result["detected_plates"], ["\u6CAA A-12345"])
+
 
 if __name__ == "__main__":
     unittest.main()

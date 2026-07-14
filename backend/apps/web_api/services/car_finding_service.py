@@ -110,6 +110,38 @@ class CarFindingService:
             "detection": detection,
         }
 
+    def verify_plate(
+        self,
+        plate_number: str,
+        topic_name: str,
+        timeout_sec: float,
+        robot_code: str,
+        camera_code: Optional[str],
+    ) -> Dict[str, Any]:
+        expected = self.normalize_plate(plate_number)
+        if not expected:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="plate_number is empty")
+        detection = inspection_service.detect_ros_plate(
+            {
+                "topic_name": topic_name,
+                "timeout_sec": timeout_sec,
+                "robot_code": robot_code,
+                "camera_code": camera_code,
+                "enabled_models": ["plate"],
+            }
+        )
+        detected_plates = self.extract_plate_candidates(detection)
+        normalized_detected = [self.normalize_plate(item) for item in detected_plates]
+        normalized_detected = [item for item in normalized_detected if item]
+        return {
+            "matched": expected in normalized_detected,
+            "expected_plate": plate_number.strip(),
+            "expected_normalized_plate": expected,
+            "detected_plates": detected_plates,
+            "detected_normalized_plates": normalized_detected,
+            "detection": detection,
+        }
+
     @staticmethod
     def normalize_plate(value: Any) -> str:
         text = unicodedata.normalize("NFKC", str(value or "")).upper()

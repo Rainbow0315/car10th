@@ -13,6 +13,8 @@ from common.schemas.car_finding import (
     PlateBindingResponse,
     VerifyAtSpotOneRequest,
     VerifyAtSpotOneResponse,
+    VerifyPlateRequest,
+    VerifyPlateResponse,
 )
 
 router = APIRouter()
@@ -42,6 +44,17 @@ def guide_to_spot_one(payload: GuideToSpotOneRequest):
 def verify_at_spot_one(payload: VerifyAtSpotOneRequest):
     return car_finding_service.verify_at_spot_one(
         user_id=payload.user_id,
+        topic_name=payload.topic_name,
+        timeout_sec=payload.timeout_sec,
+        robot_code=payload.robot_code,
+        camera_code=payload.camera_code,
+    )
+
+
+@router.post("/verify-plate", response_model=VerifyPlateResponse, summary="Detect and compare an input plate")
+def verify_plate(payload: VerifyPlateRequest):
+    return car_finding_service.verify_plate(
+        plate_number=payload.plate_number,
         topic_name=payload.topic_name,
         timeout_sec=payload.timeout_sec,
         robot_code=payload.robot_code,

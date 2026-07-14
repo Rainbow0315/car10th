@@ -113,6 +113,11 @@ abstract class Repository {
     String topicName = '/image_raw',
     double timeoutSec = 8.0,
   });
+  Future<Map<String, dynamic>> verifyCarByPlate({
+    required String plateNumber,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  });
   Future<void> setRobotMode({required String robotId, required RobotMode mode});
   Future<void> sendFleetForward({
     required List<String> robotCodes,
@@ -873,6 +878,25 @@ class CloudRepository extends TcpCarRepository {
       'topic_name': topicName,
       'timeout_sec': timeoutSec,
       'robot_code': settings.controlRobotCode,
+      'camera_code': 'usb_cam',
+    }) as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
+  Future<Map<String, dynamic>> verifyCarByPlate({
+    required String plateNumber,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  }) async {
+    final robotCode = settings.controlRobotCode.startsWith('robot_')
+        ? settings.controlRobotCode
+        : settings.selectedControlTarget.code;
+    final json = await _postJson('/api/car-finding/verify-plate', {
+      'plate_number': plateNumber,
+      'topic_name': topicName,
+      'timeout_sec': timeoutSec,
+      'robot_code': robotCode,
       'camera_code': 'usb_cam',
     }) as Map<String, dynamic>;
     return json;
@@ -1827,6 +1851,30 @@ class MockRepository implements Repository {
       'detected_plates': [_mockCarFindingPlate],
       'detected_normalized_plates': [_mockCarFindingPlate.toUpperCase()],
       'parking_record': _mockParkingRecord(userId),
+      'detection': {
+        'summary': {
+          'total_detections': 1,
+          'completed_models': ['plate'],
+          'failed_models': [],
+        }
+      },
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> verifyCarByPlate({
+    required String plateNumber,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  }) async {
+    final cleanPlate = plateNumber.trim();
+    _mockCarFindingPlate = cleanPlate;
+    return _delay({
+      'matched': true,
+      'expected_plate': cleanPlate,
+      'expected_normalized_plate': cleanPlate.toUpperCase(),
+      'detected_plates': [cleanPlate],
+      'detected_normalized_plates': [cleanPlate.toUpperCase()],
       'detection': {
         'summary': {
           'total_detections': 1,

@@ -69,6 +69,14 @@ class VerifyAtSpotOneRequest(BaseModel):
     camera_code: Optional[str] = Field("usb_cam", max_length=64)
 
 
+class VerifyPlateRequest(BaseModel):
+    plate_number: str = Field(..., min_length=1, max_length=32)
+    topic_name: str = Field("/image_raw", description="ROS image topic used for plate detection")
+    timeout_sec: float = Field(8.0, ge=0.5, le=30.0)
+    robot_code: str = Field("robot_001", min_length=1, max_length=64)
+    camera_code: Optional[str] = Field("usb_cam", max_length=64)
+
+
 class VerifyAtSpotOneResponse(BaseModel):
     user_id: str
     matched: bool
@@ -77,4 +85,13 @@ class VerifyAtSpotOneResponse(BaseModel):
     detected_plates: List[str] = Field(default_factory=list)
     detected_normalized_plates: List[str] = Field(default_factory=list)
     parking_record: ParkingRecordResponse
+    detection: Dict[str, Any]
+
+
+class VerifyPlateResponse(BaseModel):
+    matched: bool
+    expected_plate: str
+    expected_normalized_plate: str
+    detected_plates: List[str] = Field(default_factory=list)
+    detected_normalized_plates: List[str] = Field(default_factory=list)
     detection: Dict[str, Any]
