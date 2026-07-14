@@ -28,6 +28,18 @@ def detect_image(payload: ImageInspectionRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/inspection/detect-plate", response_model=ImageInspectionResponse)
+def detect_plate(payload: ImageInspectionRequest):
+    """车牌检测 + OCR 识别"""
+    payload.enabled_models = ["plate"]
+    try:
+        return inspection_pipeline.inspect_image(payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "apps.ai_service.main:app",

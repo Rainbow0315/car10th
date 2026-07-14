@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-from apps.ai_service.detectors import CrackDetector, YoloV7Detector
+from apps.ai_service.detectors import CrackDetector, PlateDetector
 from common.config.settings import settings
 from common.schemas.inspection import DetectorResult, ImageInspectionRequest, ImageInspectionResponse, InspectionSummary
 
@@ -74,29 +74,42 @@ class InspectionPipeline:
                 normalized.append(value)
         return normalized or list(settings.default_enabled_models)
 
+    def release_model(self, model_name: str) -> None:
+        """释放指定模型的内存（分时加载核心）"""
+        if model_name in self._detectors:
+            detector = self._detectors[model_name]
+            if hasattr(detector, "unload"):
+                detector.unload()
+            del self._detectors[model_name]
+            print(f"[Pipeline] Released {model_name}")
+
+    def _switch_mode(self, keep: str) -> None:
+        """切换到指定模式，释放其他模型"""
+        for name in list(self._detectors.keys()):
+            if name != keep:
+                self.release_model(name)
+
     def _get_detector(self, model_name: str):
         if model_name in self._detectors:
             return self._detectors[model_name]
 
-        if model_name == "crack":
-            detector = CrackDetector(conf=settings.detection_conf, iou=settings.detection_iou, device=settings.inference_device)
-            detector.load_model(settings.model_crack)
-        elif model_name == "puddle":
-            detector = YoloV7Detector(
+        # 分时加载：切换模式前释放旧模型
+        self._switch_mode(keep=model_name)
+
+        if model_name == "unified":
+            detector = CrackDetector(
                 conf=settings.detection_conf,
                 iou=settings.detection_iou,
                 device=settings.inference_device,
-                model_tag="puddle",
             )
-            detector.load_model(settings.model_puddle)
-        elif model_name == "fod":
-            detector = YoloV7Detector(
-                conf=settings.detection_conf,
+            detector.load_model(settings.model_unified)
+        elif model_name == "plate":
+            detector = PlateDetector(
+                conf=0.3,
                 iou=settings.detection_iou,
                 device=settings.inference_device,
-                model_tag="fod",
             )
-            detector.load_model(settings.model_fod)
+            detector.load_model(settings.model_plate)
         else:
             raise RuntimeError(f"不支持的模型: {model_name}")
 

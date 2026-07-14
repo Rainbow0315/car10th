@@ -18,6 +18,10 @@ class CrackDetector(BaseDetector):
 
         self.model = YOLO(weight_path)
 
+    def unload(self) -> None:
+        """释放模型内存（分时加载用）"""
+        self.model = None
+
     def detect(self, image_path: str) -> List[Dict[str, Any]]:
         if self.model is None:
             raise RuntimeError("CrackDetector 尚未加载模型")

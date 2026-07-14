@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     capture_img_dir: str = "./capture_img"
     cors_origins: List[str] = ["*"]
     default_robot_code: str = "robot_001"
-    default_enabled_models: List[str] = ["crack", "puddle", "fod"]
+    default_enabled_models: List[str] = ["unified"]
     detection_conf: float = 0.25
     detection_iou: float = 0.45
     inference_device: str = "cuda"
@@ -58,9 +58,8 @@ class Settings(BaseSettings):
     stream_open_timeout_sec: float = 8.0
     frame_grab_timeout_sec: float = 10.0
     stream_warmup_frames: int = 5
-    model_crack: str = str(BASE_DIR / "apps/ai_service/weights/crack_detect.pt")
-    model_puddle: str = str(BASE_DIR / "apps/ai_service/weights/puddle_detect.pt")
-    model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
+    model_unified: str = str(BASE_DIR / "apps/ai_service/weights/road_inspection_6class.pt")
+    model_plate: str = str(BASE_DIR / "apps/ai_service/weights/plate_detect_ccpd.pt")
 
     @property
     def database_url(self) -> str:

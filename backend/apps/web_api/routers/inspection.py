@@ -16,3 +16,8 @@ def inspection_health():
 @router.post("/detect-image", response_model=ImageInspectionResponse, summary="Run road inspection on one image")
 def detect_image(payload: ImageInspectionRequest):
     return inspection_service.detect_image(payload.model_dump())
+
+
+@router.post("/detect-plate", response_model=ImageInspectionResponse, summary="Run license plate detection + OCR")
+def detect_plate(payload: ImageInspectionRequest):
+    return inspection_service.detect_plate(payload.model_dump())

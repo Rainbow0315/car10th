@@ -1,4 +1,4 @@
 from apps.ai_service.detectors.crack_detector import CrackDetector
-from apps.ai_service.detectors.yolov7_detector import YoloV7Detector
+from apps.ai_service.detectors.plate_detector import PlateDetector
 
-__all__ = ["CrackDetector", "YoloV7Detector"]
+__all__ = ["CrackDetector", "PlateDetector"]
