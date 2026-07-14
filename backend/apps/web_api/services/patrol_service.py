@@ -171,6 +171,13 @@ class PatrolService:
         waypoints = _as_waypoints(task.waypoints_json)
         if len(waypoints) < 2:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="航点不足 2 个")
+        return_to_start = bool(int(task.return_to_start or 0))
+        start_goal = self._current_robot_pose_goal() if return_to_start else None
+        if return_to_start and start_goal is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="robot_pose unavailable, cannot record patrol start pose",
+            )
         with self._lock:
             current = self._runtime.get(task_code)
             if current is not None and current.running:
@@ -182,7 +189,14 @@ class PatrolService:
             cancel_event = threading.Event()
             thread = threading.Thread(
                 target=self._run_task,
-                args=(task_code, task.robot_code, int(task.loop_count or 1), waypoints, cancel_event),
+                args=(
+                    task_code,
+                    task.robot_code,
+                    int(task.loop_count or 1),
+                    waypoints,
+                    cancel_event,
+                    start_goal,
+                ),
                 daemon=True,
             )
             self._runtime[task_code] = PatrolRuntimeState(
@@ -289,6 +303,7 @@ class PatrolService:
         loop_count: int,
         waypoints: List[Dict[str, Any]],
         cancel_event: threading.Event,
+        start_goal: Optional[Dict[str, Any]],
     ) -> None:
         try:
             for loop_idx in range(max(1, loop_count)):
@@ -298,18 +313,19 @@ class PatrolService:
                     if cancel_event.is_set():
                         raise _Cancelled()
 
-                    seq = int(wp.get("seq") or 0) or None
-                    self._update_runtime(task_code, current_seq=seq, current_goal=dict(wp), message=None)
-                    slam_service.publish_goal(
-                        {
-                            "x": float(wp.get("x") or 0.0),
-                            "y": float(wp.get("y") or 0.0),
-                            "yaw": float(wp.get("yaw") or 0.0),
-                            "frame_id": "map",
-                        }
-                    )
-                    self._wait_until_arrived(task_code, wp, cancel_event)
+                    self._drive_to_waypoint(task_code, wp, cancel_event)
                 self._update_runtime(task_code, message=f"loop {loop_idx + 1}/{max(1, loop_count)} done")
+
+            if start_goal is not None:
+                if cancel_event.is_set():
+                    raise _Cancelled()
+                self._drive_to_waypoint(
+                    task_code,
+                    start_goal,
+                    cancel_event,
+                    seq=0,
+                    message="returning to start",
+                )
 
             self._mark_db_completed(task_code)
             self._finish_runtime(task_code, "completed", "task completed")
@@ -319,6 +335,41 @@ class PatrolService:
             error = str(exc)[:512]
             self._mark_db_failed(task_code, error)
             self._finish_runtime(task_code, "failed", error)
+
+    def _current_robot_pose_goal(self) -> Optional[Dict[str, Any]]:
+        snapshot = slam_service.get_map()
+        pose = (snapshot.get("robot_pose") or None) if isinstance(snapshot, dict) else None
+        if not isinstance(pose, dict):
+            return None
+        return {
+            "seq": 0,
+            "x": float(pose.get("x") or 0.0),
+            "y": float(pose.get("y") or 0.0),
+            "yaw": float(pose.get("yaw") or 0.0),
+            "name": "return_to_start",
+        }
+
+    def _drive_to_waypoint(
+        self,
+        task_code: str,
+        waypoint: Dict[str, Any],
+        cancel_event: threading.Event,
+        *,
+        seq: Optional[int] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        if seq is None:
+            seq = int(waypoint.get("seq") or 0) or None
+        self._update_runtime(task_code, current_seq=seq, current_goal=dict(waypoint), message=message)
+        slam_service.publish_goal(
+            {
+                "x": float(waypoint.get("x") or 0.0),
+                "y": float(waypoint.get("y") or 0.0),
+                "yaw": float(waypoint.get("yaw") or 0.0),
+                "frame_id": "map",
+            }
+        )
+        self._wait_until_arrived(task_code, waypoint, cancel_event)
 
     def _wait_until_arrived(self, task_code: str, waypoint: Dict[str, Any], cancel_event: threading.Event) -> None:
         target_x = float(waypoint.get("x") or 0.0)
