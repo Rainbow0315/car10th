@@ -47,12 +47,26 @@ class FakeShow:
         self.is_running = False
 
 
+class FakeAudio:
+    def __init__(self) -> None:
+        self.played = 0
+        self.stopped = 0
+
+    def play(self) -> None:
+        self.played += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
 class TcpCarBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.publisher = FakePublisher()
         self.bridge = TcpCarBridge(publisher=self.publisher)
         self.show = FakeShow()
         self.bridge.show = self.show
+        self.audio = FakeAudio()
+        self.bridge.audio = self.audio
 
     def test_parse_light_frame(self) -> None:
         parsed = parse_frame(frame("30", "05"))
@@ -79,6 +93,13 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.bridge.handle_frame(frame("15", "01"))
         self.assertEqual(self.show.stopped, [True])
         self.assertEqual(len(self.publisher.motion_messages), 1)
+
+    def test_audio_command_does_not_cancel_light_show(self) -> None:
+        self.show.is_running = True
+        response = self.bridge.handle_frame(frame("33"))
+        self.assertEqual(response, "OK\n")
+        self.assertEqual(self.audio.played, 1)
+        self.assertEqual(self.show.stopped, [])
 
 
 if __name__ == "__main__":

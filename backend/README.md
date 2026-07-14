@@ -219,3 +219,28 @@ python scripts/test_mqtt.py publish-control
 如果终端 1 能收到 `robot/status/robot_001` 消息，说明 MQTT broker、账号密码和 topic 配置正常。
 
 更多细节见：`../docs/mqtt_setup.md`
+
+## TCP 小车音频
+
+Flutter 控制页的“播放音频”按钮会向 `tcp_car_bridge` 发送 TCP 指令 `33`。车端收到后会启动独立音频播放进程，因此可以和灯光秀同时运行。
+
+默认播放文件：
+
+```text
+/home/jetson/car_audio/前方有危险.MP3
+```
+
+车端首次配置：
+
+```bash
+mkdir -p /home/jetson/car_audio
+# 将音频文件复制到 /home/jetson/car_audio 后，启动或重启 tcp_car_bridge
+cd /home/jetson/Project/car10th/backend
+nohup python3 -m apps.tcp_car_bridge.main > /tmp/tcp_car_bridge.log 2>&1 &
+```
+
+如需临时改成其他音频，可在启动 `tcp_car_bridge` 前设置：
+
+```bash
+export TCP_CAR_AUDIO_FILE=/home/jetson/car_audio/倒车请注意.MP3
+```

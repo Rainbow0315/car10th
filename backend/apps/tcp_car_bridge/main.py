@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from apps.ros_bridge.publishers.cmd_vel import CmdVelPublisher, RosRuntimeUnavailableError
+from apps.tcp_car_bridge.audio_player import AudioPlayer
 from apps.tcp_car_bridge.light_show import LightShow
 from apps.tcp_car_bridge.serial_hardware import (
     HeadlightEffectController,
@@ -93,6 +94,7 @@ class TcpCarBridge:
             except Exception as exc:
                 print(f"Physical car control unavailable; using ROS fallback: {exc}", flush=True)
         self.show = LightShow(set_light_scene=self._set_show_light_scene)
+        self.audio = AudioPlayer()
 
     def handle_frame(self, frame: str) -> str:
         command = parse_frame(frame)
@@ -110,6 +112,8 @@ class TcpCarBridge:
             self.show.start()
         elif command.command == "32":
             self.show.stop()
+        elif command.command == "33":
+            self.audio.play()
         elif command.command in {"60", "61", "62", "63", "64"}:
             pass
         else:
@@ -215,6 +219,7 @@ class TcpCarBridge:
             self.show.stop()
 
     def close(self) -> None:
+        self.audio.stop()
         self.show.stop()
         if self.headlights is not None:
             self.headlights.stop()
@@ -276,7 +281,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop_server)
 
     print(f"TCP car bridge listening on {host}:{port}")
-    print("Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, show stop=32")
+    print("Protocol: Yahboom/OpenHarmony frames; light=30, show start=31, show stop=32, audio=33")
     try:
         server.serve_forever()
     finally:

@@ -26,6 +26,7 @@ void main() {
     expect(find.text('星光'), findsOneWidget);
     expect(find.text('开始灯光秀'), findsOneWidget);
     expect(find.text('停止灯光秀'), findsOneWidget);
+    expect(find.text('播放音频'), findsOneWidget);
 
     await tester.tap(find.text('开始灯光秀'));
     await tester.pumpAndSettle();
