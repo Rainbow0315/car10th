@@ -53,7 +53,9 @@ class LlmTaskService:
         source = "rule_fallback"
         llm_error: Optional[str] = None
 
-        if request.allow_llm and settings.llm_api_key and settings.llm_api_base:
+        if self._is_forward_request(request.message):
+            steps = self._plan_with_rules(request)
+        elif request.allow_llm and settings.llm_api_key and settings.llm_api_base:
             try:
                 steps = await self._plan_with_llm(request, robot_context)
                 source = "llm"
@@ -130,6 +132,8 @@ class LlmTaskService:
 
         if step.tool == "fleet.summary":
             return fleet_service.get_summary()
+        if step.tool == "fleet.list_robots":
+            return {"robots": fleet_service.list_robots()}
         if step.tool == "fleet.readiness":
             robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
             return fleet_service.check_readiness(robot_codes)
@@ -147,6 +151,180 @@ class LlmTaskService:
                 for robot_code in robot_codes
             ]
             return {"commands": commands}
+        if step.tool == "fleet.nudge_forward":
+            robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            command = self._publish_command(
+                robot_code,
+                "nudge_forward",
+                {
+                    "reason": step.arguments.get("reason") or "LLM requested a brief forward movement",
+                    "source": "llm_task_planner",
+                    "motion": {
+                        "linear_x": 0.05,
+                        "linear_y": 0.0,
+                        "angular_z": 0.0,
+                        "duration": 0.8,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+            return {"command": command}
+        if step.tool == "fleet.rescue_approach":
+            robot_code = str(step.arguments.get("responder_robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            command = self._publish_command(
+                robot_code,
+                "rescue_approach",
+                {
+                    "incident_id": step.arguments.get("incident_id") or uuid.uuid4().hex,
+                    "disabled_robot_code": step.arguments.get("disabled_robot_code"),
+                    "source": "llm_task_planner",
+                    "motion": {
+                        "linear_x": 0.08,
+                        "linear_y": 0.0,
+                        "angular_z": 0.0,
+                        "duration": 0.8,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+            return {"command": command}
+        if step.tool == "fleet.rescue_search":
+            robot_code = str(step.arguments.get("responder_robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            command = self._publish_command(
+                robot_code,
+                "rescue_search",
+                {
+                    "incident_id": step.arguments.get("incident_id") or uuid.uuid4().hex,
+                    "disabled_robot_code": step.arguments.get("disabled_robot_code"),
+                    "source": "llm_task_planner",
+                    "motion": {
+                        "linear_x": 0.0,
+                        "linear_y": 0.0,
+                        "angular_z": 0.25,
+                        "duration": 1.5,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+            return {"command": command}
+        if step.tool == "fleet.corridor_crawl":
+            robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
+            self._ensure_ready(robot_codes)
+            commands = []
+            for slot_index, robot_code in enumerate(robot_codes):
+                commands.append(
+                    self._publish_command(
+                        robot_code,
+                        "corridor_crawl",
+                        {
+                            "corridor_id": step.arguments.get("corridor_id"),
+                            "slot_index": slot_index,
+                            "spacing_m": 1.0,
+                            "traffic_rule": "llm_staggered_single_lane_passage",
+                            "schedule": {
+                                "start_delay_sec": float(slot_index),
+                                "start_interval_sec": 1.0,
+                            },
+                            "source": "llm_task_planner",
+                            "motion": {
+                                "linear_x": 0.06,
+                                "linear_y": 0.0,
+                                "angular_z": 0.0,
+                                "duration": 1.0,
+                                "rate_hz": 10.0,
+                            },
+                        },
+                    )
+                )
+            return {"commands": commands}
+        if step.tool == "fleet.corridor_yield":
+            robot_code = str(step.arguments.get("yielding_robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            command = self._publish_command(
+                robot_code,
+                "corridor_yield",
+                {
+                    "corridor_id": step.arguments.get("corridor_id"),
+                    "priority_robot_code": step.arguments.get("priority_robot_code"),
+                    "reason": step.arguments.get("reason") or "LLM requested corridor yield",
+                    "source": "llm_task_planner",
+                    "motion": {
+                        "linear_x": -0.05,
+                        "linear_y": 0.0,
+                        "angular_z": 0.0,
+                        "duration": 0.8,
+                        "rate_hz": 10.0,
+                    },
+                },
+            )
+            return {"command": command}
+        if step.tool == "fleet.hazard_avoidance":
+            robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
+            self._ensure_ready(robot_codes)
+            avoid_direction = str(step.arguments.get("avoid_direction") or "left").lower()
+            angular_z = -0.22 if avoid_direction == "right" else 0.22
+            commands = [
+                self._publish_command(
+                    robot_code,
+                    "hazard_avoid",
+                    {
+                        "hazard_id": step.arguments.get("hazard_id") or uuid.uuid4().hex,
+                        "reported_by_robot_code": step.arguments.get("reported_by_robot_code"),
+                        "avoid_direction": "right" if avoid_direction == "right" else "left",
+                        "reason": step.arguments.get("reason") or "LLM requested hazard avoidance",
+                        "source": "llm_task_planner",
+                        "motion": {
+                            "linear_x": 0.04,
+                            "linear_y": 0.0,
+                            "angular_z": angular_z,
+                            "duration": 1.0,
+                            "rate_hz": 10.0,
+                        },
+                    },
+                )
+                for robot_code in robot_codes
+            ]
+            return {"commands": commands}
+        if step.tool == "fleet.formation":
+            robot_codes = self._string_list(step.arguments.get("robot_codes")) or ["robot_001"]
+            self._ensure_ready(robot_codes)
+            formation_id = uuid.uuid4().hex
+            commands = []
+            members = []
+            for slot_index, robot_code in enumerate(robot_codes):
+                role = "leader" if slot_index == 0 else "follower"
+                payload = {
+                    "formation_id": formation_id,
+                    "formation_type": step.arguments.get("formation_type") or "line",
+                    "role": role,
+                    "slot_index": slot_index,
+                    "offset_x": -slot_index,
+                    "offset_y": 0.0,
+                    "mode": step.arguments.get("mode") or "patrol",
+                    "source": "llm_task_planner",
+                }
+                command = self._publish_command(robot_code, "set_formation", payload)
+                commands.append(command)
+                members.append(
+                    {
+                        "robot_code": robot_code,
+                        "role": role,
+                        "slot_index": slot_index,
+                        "offset_x": payload["offset_x"],
+                        "offset_y": payload["offset_y"],
+                        "command_id": command["command_id"],
+                    }
+                )
+            fleet_service.register_formation(
+                formation_id=formation_id,
+                formation_type=str(step.arguments.get("formation_type") or "line"),
+                mode=str(step.arguments.get("mode") or "patrol"),
+                members=members,
+            )
+            return {"formation_id": formation_id, "commands": commands}
         if step.tool == "fleet.plate_verify":
             robot_code = str(step.arguments.get("verifier_robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -241,6 +419,8 @@ class LlmTaskService:
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
+                "For a brief forward movement request, use fleet.nudge_forward.",
+                "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
             ],
@@ -304,6 +484,43 @@ class LlmTaskService:
         plate_number = self._plate_number(text)
         zone_id = self._zone_id(text)
 
+        if any(keyword in text for keyword in ["list robots", "robots", "小车列表", "有哪些小车", "列出小车"]):
+            return [self._step(1, "fleet.list_robots", {})]
+        if any(keyword in text for keyword in ["rescue approach", "approach rescue", "靠近救援", "接近故障车"]):
+            return [
+                self._step(
+                    1,
+                    "fleet.rescue_approach",
+                    {"responder_robot_code": robot_code, "disabled_robot_code": "target_robot_unknown"},
+                )
+            ]
+        if any(keyword in text for keyword in ["rescue search", "search rescue", "旋转搜索", "原地搜索", "搜索救援"]):
+            return [
+                self._step(
+                    1,
+                    "fleet.rescue_search",
+                    {"responder_robot_code": robot_code, "disabled_robot_code": "target_robot_unknown"},
+                )
+            ]
+        if any(keyword in text for keyword in ["corridor", "narrow passage", "狭窄通道", "通道慢行", "走廊慢行"]):
+            return [self._step(1, "fleet.corridor_crawl", {"robot_codes": [robot_code]})]
+        if any(keyword in text for keyword in ["yield", "让行", "让路", "后退让路", "退让"]):
+            return [self._step(1, "fleet.corridor_yield", {"yielding_robot_code": robot_code})]
+        if any(keyword in text for keyword in ["hazard", "avoid", "obstacle", "避障", "避让", "绕开障碍", "障碍"]):
+            return [self._step(1, "fleet.hazard_avoidance", {"robot_codes": [robot_code]})]
+        if any(keyword in text for keyword in ["formation", "编队", "队形", "排成一队"]):
+            robot_codes = request.robot_codes if request.robot_codes else [robot_code]
+            return [self._step(1, "fleet.formation", {"robot_codes": robot_codes, "formation_type": "line"})]
+
+        if any(keyword in text for keyword in ["前进", "向前", "往前", "forward", "move forward"]):
+            return [
+                self._step(
+                    1,
+                    "fleet.nudge_forward",
+                    {"robot_code": robot_code, "reason": f"LLM parsed from: {text[:80]}"},
+                )
+            ]
+
         if any(keyword in text for keyword in ["急停", "停止", "stop", "刹车"]):
             return [
                 self._step(
@@ -341,6 +558,10 @@ class LlmTaskService:
         if any(keyword in text for keyword in ["状态", "在线", "ready", "准备"]):
             return [self._step(1, "fleet.readiness", {"robot_codes": [robot_code]})]
         return [self._step(1, "fleet.summary", {})]
+
+    def _is_forward_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        return any(keyword in normalized for keyword in ["前进", "向前", "往前", "forward", "move forward"])
 
     def _step(self, index: int, tool_name: str, arguments: Dict[str, Any]) -> LlmTaskPlanStep:
         spec = self._tools[tool_name]
@@ -436,6 +657,14 @@ class LlmTaskService:
                 requires_confirmation=False,
             ),
             LlmToolSpec(
+                name="fleet.list_robots",
+                title="列出小车",
+                description="读取当前后端已知的小车列表和在线状态，不会控制小车。",
+                backend_route="GET /api/fleet/robots",
+                safety_level="read_only",
+                requires_confirmation=False,
+            ),
+            LlmToolSpec(
                 name="fleet.readiness",
                 title="检查小车是否可执行任务",
                 description="检查指定 robot_code 是否在线且可接收任务。",
@@ -452,6 +681,83 @@ class LlmTaskService:
                 command_name="emergency_stop",
                 required_arguments=["robot_codes"],
                 safety_level="safe_command",
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.nudge_forward",
+                title="安全短距离前进",
+                description="向指定小车下发 nudge_forward，只允许低速、短时、直线前进。",
+                backend_route="MQTT fleet/command/{robot_code}",
+                command_name="nudge_forward",
+                required_arguments=["robot_code"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.rescue_approach",
+                title="救援接近",
+                description="让救援车低速短时向故障车方向接近。",
+                backend_route="POST /api/fleet/rescue/approach",
+                command_name="rescue_approach",
+                required_arguments=["responder_robot_code"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.rescue_search",
+                title="救援搜索",
+                description="让救援车原地低速旋转搜索目标。",
+                backend_route="POST /api/fleet/rescue/search",
+                command_name="rescue_search",
+                required_arguments=["responder_robot_code"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.corridor_crawl",
+                title="狭窄通道慢行",
+                description="让一辆或多辆小车低速、错峰通过狭窄通道。",
+                backend_route="POST /api/fleet/corridor/crawl",
+                command_name="corridor_crawl",
+                required_arguments=["robot_codes"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.corridor_yield",
+                title="通道让行",
+                description="让指定小车短时低速后退，为优先小车让路。",
+                backend_route="POST /api/fleet/corridor/yield",
+                command_name="corridor_yield",
+                required_arguments=["yielding_robot_code"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.hazard_avoidance",
+                title="障碍避让",
+                description="让小车低速小弧线绕开障碍。",
+                backend_route="POST /api/fleet/hazards/avoidance",
+                command_name="hazard_avoid",
+                required_arguments=["robot_codes"],
+                safety_level="motion_command",
+                readiness_required=True,
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.formation",
+                title="创建编队",
+                description="给多辆小车分配 leader/follower 编队角色和队形偏移。",
+                backend_route="POST /api/fleet/formations",
+                command_name="set_formation",
+                required_arguments=["robot_codes"],
+                safety_level="safe_command",
+                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(
