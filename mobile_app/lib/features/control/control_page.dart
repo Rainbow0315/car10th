@@ -162,11 +162,18 @@ class _ControlPageState extends State<ControlPage> {
   }
 
   Future<void> _setAutoFollow(bool enabled) async {
-    if (_mode == _ControlMode.fleet) return;
+    final isFleet = _mode == _ControlMode.fleet;
 
     await _send(
       enabled ? '自动跟随' : '停止跟随',
-      (repo) => enabled ? repo.startTracking() : repo.stopTracking(),
+      (repo) {
+        if (isFleet) {
+          return enabled
+              ? repo.startFleetTracking(robotCodes: _robotCodes)
+              : repo.stopFleetTracking(robotCodes: _robotCodes);
+        }
+        return enabled ? repo.startTracking() : repo.stopTracking();
+      },
       toast: true,
     );
     if (!mounted) return;
@@ -174,11 +181,14 @@ class _ControlPageState extends State<ControlPage> {
   }
 
   Future<void> _stopAutoFollow({bool showBusy = true}) async {
-    if (!_autoFollowOn || _mode == _ControlMode.fleet) return;
+    if (!_autoFollowOn) return;
+    final isFleet = _mode == _ControlMode.fleet;
 
     await _send(
       '停止跟随',
-      (repo) => repo.stopTracking(),
+      (repo) => isFleet
+          ? repo.stopFleetTracking(robotCodes: _robotCodes)
+          : repo.stopTracking(),
       showBusy: showBusy,
       showError: false,
     );
@@ -520,8 +530,9 @@ class _ControlPageState extends State<ControlPage> {
                 ? _DirectionTab(
                     speedScale: _speedScale,
                     autoFollowOn: _autoFollowOn,
-                    autoFollowEnabled:
-                        _mode == _ControlMode.single && _repeatTimer == null,
+                    autoFollowEnabled: _repeatTimer == null &&
+                        (_mode == _ControlMode.single ||
+                            _robotCodes.isNotEmpty),
                     onCommandDown: _startDirection,
                     onCommandUp: () => unawaited(_stopRepeating()),
                     onStop: () async {

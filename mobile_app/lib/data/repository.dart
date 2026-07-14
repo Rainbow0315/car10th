@@ -115,6 +115,8 @@ abstract class Repository {
   Future<void> stopRecording();
   Future<void> startTracking();
   Future<void> stopTracking();
+  Future<void> startFleetTracking({required List<String> robotCodes});
+  Future<void> stopFleetTracking({required List<String> robotCodes});
   Future<void> setLightEffect(RobotLightEffect effect);
   Future<void> startLightShow();
   Future<void> stopLightShow();
@@ -270,6 +272,16 @@ class TcpCarRepository extends MockRepository {
   @override
   Future<void> stopTracking() async {
     await _send(_encode('64', []));
+  }
+
+  @override
+  Future<void> startFleetTracking({required List<String> robotCodes}) async {
+    await _sendFleetRaw(robotCodes, _encode('63', []));
+  }
+
+  @override
+  Future<void> stopFleetTracking({required List<String> robotCodes}) async {
+    await _sendFleetRaw(robotCodes, _encode('64', []));
   }
 
   @override
@@ -1439,6 +1451,16 @@ class MockRepository implements Repository {
 
   @override
   Future<void> stopTracking() async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> startFleetTracking({required List<String> robotCodes}) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> stopFleetTracking({required List<String> robotCodes}) async {
     await _delay(null);
   }
 
