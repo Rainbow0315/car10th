@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     cloud_file_storage_dir: str = str(BASE_DIR / "runtime" / "inspection" / "cloud_frames")
     cloud_file_public_base_url: str = "http://192.168.137.20:8010"
     inspection_alarm_min_confidence: float = 0.6
+    parking_spot_one_x: float = 0.0
+    parking_spot_one_y: float = 0.0
+    parking_spot_one_yaw: float = 0.0
+    parking_spot_one_frame_id: str = "map"
 
     @property
     def database_url(self) -> str:

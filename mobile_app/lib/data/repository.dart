@@ -98,6 +98,21 @@ abstract class Repository {
 
   Future<void> setInitialPose({required MapPoint pose});
   Future<void> sendNavGoal({required MapPoint goal});
+  Future<Map<String, dynamic>> listCarFindingParkingSpots();
+  Future<Map<String, dynamic>> bindCarFindingPlate({
+    required String userId,
+    required String plateNumber,
+  });
+  Future<Map<String, dynamic>> parkCarAtSpotOne({
+    required String userId,
+    String? plateNumber,
+  });
+  Future<Map<String, dynamic>> guideToSpotOne({required String userId});
+  Future<Map<String, dynamic>> verifyCarAtSpotOne({
+    required String userId,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  });
   Future<void> setRobotMode({required String robotId, required RobotMode mode});
   Future<void> sendFleetForward({
     required List<String> robotCodes,
@@ -806,6 +821,64 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> listCarFindingParkingSpots() async {
+    final json = await _getJson('/api/car-finding/parking-spots')
+        as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
+  Future<Map<String, dynamic>> bindCarFindingPlate({
+    required String userId,
+    required String plateNumber,
+  }) async {
+    final json = await _postJson('/api/car-finding/bind-plate', {
+      'user_id': userId,
+      'plate_number': plateNumber,
+    }) as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
+  Future<Map<String, dynamic>> parkCarAtSpotOne({
+    required String userId,
+    String? plateNumber,
+  }) async {
+    final body = <String, Object?>{'user_id': userId};
+    final cleanPlate = plateNumber?.trim();
+    if (cleanPlate != null && cleanPlate.isNotEmpty) {
+      body['plate_number'] = cleanPlate;
+    }
+    final json = await _postJson('/api/car-finding/park-at-spot-one', body)
+        as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
+  Future<Map<String, dynamic>> guideToSpotOne({required String userId}) async {
+    final json = await _postJson('/api/car-finding/guide-to-spot-one', {
+      'user_id': userId,
+    }) as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
+  Future<Map<String, dynamic>> verifyCarAtSpotOne({
+    required String userId,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  }) async {
+    final json = await _postJson('/api/car-finding/verify-at-spot-one', {
+      'user_id': userId,
+      'topic_name': topicName,
+      'timeout_sec': timeoutSec,
+      'robot_code': settings.controlRobotCode,
+      'camera_code': 'usb_cam',
+    }) as Map<String, dynamic>;
+    return json;
+  }
+
+  @override
   Future<List<PatrolTask>> listPatrolTasks() async {
     final json = await _getJson('/api/patrol/tasks') as Map<String, dynamic>;
     final items = (json['items'] as List? ?? const []);
@@ -1266,6 +1339,7 @@ class MockRepository implements Repository {
   final List<PatrolTask> _patrolTasks = [];
   final Map<String, PatrolRuntime> _patrolRuntime = {};
   bool _monitorRunning = false;
+  String _mockCarFindingPlate = 'A12345';
 
   MockRepository() {
     _seed();
@@ -1684,6 +1758,95 @@ class MockRepository implements Repository {
   @override
   Future<void> setInitialPose({required MapPoint pose}) async {
     await _delay(null);
+  }
+
+  @override
+  Future<Map<String, dynamic>> listCarFindingParkingSpots() async {
+    return _delay({
+      'spots': [
+        {
+          'spot_id': 'spot_1',
+          'name': '车位一',
+          'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame_id': 'map'},
+        }
+      ],
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> bindCarFindingPlate({
+    required String userId,
+    required String plateNumber,
+  }) async {
+    _mockCarFindingPlate = plateNumber.trim();
+    return _delay({
+      'user_id': userId,
+      'plate_number': _mockCarFindingPlate,
+      'normalized_plate_number': _mockCarFindingPlate.toUpperCase(),
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> parkCarAtSpotOne({
+    required String userId,
+    String? plateNumber,
+  }) async {
+    final cleanPlate = plateNumber?.trim();
+    if (cleanPlate != null && cleanPlate.isNotEmpty) {
+      _mockCarFindingPlate = cleanPlate;
+    }
+    return _delay(_mockParkingRecord(userId));
+  }
+
+  @override
+  Future<Map<String, dynamic>> guideToSpotOne({required String userId}) async {
+    return _delay({
+      'user_id': userId,
+      'spot': {
+        'spot_id': 'spot_1',
+        'name': '车位一',
+        'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame_id': 'map'},
+      },
+      'parking_record': _mockParkingRecord(userId),
+      'nav_goal': {'status': 'mock', 'topic_name': '/goal_pose'},
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> verifyCarAtSpotOne({
+    required String userId,
+    String topicName = '/image_raw',
+    double timeoutSec = 8.0,
+  }) async {
+    return _delay({
+      'user_id': userId,
+      'matched': true,
+      'expected_plate': _mockCarFindingPlate,
+      'expected_normalized_plate': _mockCarFindingPlate.toUpperCase(),
+      'detected_plates': [_mockCarFindingPlate],
+      'detected_normalized_plates': [_mockCarFindingPlate.toUpperCase()],
+      'parking_record': _mockParkingRecord(userId),
+      'detection': {
+        'summary': {
+          'total_detections': 1,
+          'completed_models': ['plate'],
+          'failed_models': [],
+        }
+      },
+    });
+  }
+
+  Map<String, dynamic> _mockParkingRecord(String userId) {
+    return {
+      'user_id': userId,
+      'spot_id': 'spot_1',
+      'spot_name': '车位一',
+      'plate_number': _mockCarFindingPlate,
+      'normalized_plate_number': _mockCarFindingPlate.toUpperCase(),
+      'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame_id': 'map'},
+      'recorded_at': DateTime.now().toIso8601String(),
+    };
   }
 
   @override

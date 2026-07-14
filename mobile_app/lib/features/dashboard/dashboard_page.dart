@@ -5,6 +5,7 @@ import '../../app/session.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
 import '../alarm/alarm_labels.dart';
+import '../car_finding/car_finding_page.dart';
 import '../chat/chat_page.dart';
 import '../control/control_page.dart';
 import '../inspection/camera_yolo_card.dart';
@@ -93,6 +94,12 @@ class _DashboardPageState extends State<DashboardPage> {
         icon: Icons.schedule,
         enabled: session.canTaskConfig(),
         onTap: () => _push(const TaskConfigPage()),
+      ),
+      _QuickAction(
+        label: '引导找车',
+        icon: Icons.directions_car_filled_outlined,
+        enabled: session.canRemoteControl(),
+        onTap: () => _push(const CarFindingPage()),
       ),
       _QuickAction(
         label: 'LLM 对话',
