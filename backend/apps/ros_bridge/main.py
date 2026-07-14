@@ -19,7 +19,14 @@ from common.schemas.slam import (
     SlamInitialPoseResponse,
     SlamMapResponse,
 )
-from common.schemas.teleop import CmdVelAcceptedResponse, CmdVelRequest, RosBridgeHealthResponse, StopResponse
+from common.schemas.teleop import (
+    CmdVelAcceptedResponse,
+    CmdVelRequest,
+    RosBridgeHealthResponse,
+    RotateAngleRequest,
+    RotateAngleResponse,
+    StopResponse,
+)
 
 
 class RosBridgeState:
@@ -40,10 +47,12 @@ state = RosBridgeState()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     topic_name = os.getenv("ROS_CMD_VEL_TOPIC", "/cmd_vel")
+    odom_topic_name = os.getenv("ROS_ODOM_TOPIC", "/odom")
+    imu_topic_name = os.getenv("ROS_IMU_TOPIC", "/imu/data")
     try:
         state.slam_map = SlamMapSubscriber(
             map_topic=os.getenv("ROS_MAP_TOPIC", "/map"),
-            odom_topic=os.getenv("ROS_ODOM_TOPIC", "/odom"),
+            odom_topic=odom_topic_name,
             amcl_topic=os.getenv("ROS_AMCL_TOPIC", "/amcl_pose"),
             scan_topic=os.getenv("ROS_SCAN_TOPIC", "/scan"),
             scan_x_offset=float(os.getenv("ROS_SCAN_X_OFFSET", "-0.0455")),
@@ -53,7 +62,11 @@ async def lifespan(_: FastAPI):
     except RosRuntimeUnavailableError as exc:
         state.slam_startup_error = str(exc)
     try:
-        state.publisher = CmdVelPublisher(topic_name=topic_name)
+        state.publisher = CmdVelPublisher(
+            topic_name=topic_name,
+            odom_topic_name=odom_topic_name,
+            imu_topic_name=imu_topic_name,
+        )
     except RosRuntimeUnavailableError as exc:
         state.startup_error = str(exc)
     try:
@@ -91,7 +104,11 @@ def health_check():
         "status": "ok" if state.publisher is not None else "degraded",
         "service": "ros_bridge",
         "cmd_vel_topic": state.publisher.topic_name if state.publisher is not None else None,
+        "odom_topic": state.publisher.odom_topic_name if state.publisher is not None else None,
+        "imu_topic": state.publisher.imu_topic_name if state.publisher is not None else None,
         "subscriber_count": state.publisher.subscription_count() if state.publisher is not None else 0,
+        "odom_ready": state.publisher.odom_ready() if state.publisher is not None else False,
+        "yaw_source": state.publisher.yaw_source if state.publisher is not None else None,
         "node_name": state.publisher.node_name if state.publisher is not None else None,
         "startup_error": state.startup_error,
     }
@@ -190,6 +207,40 @@ def publish_cmd_vel(payload: CmdVelRequest):
             "rate_hz": command.rate_hz,
         },
 }
+
+
+@app.post("/api/teleop/rotate-angle", response_model=RotateAngleResponse)
+def rotate_angle(payload: RotateAngleRequest):
+    publisher = _require_publisher()
+    result = publisher.rotate_angle(
+        angle_rad=payload.angle_rad,
+        angular_z=payload.angular_z,
+        tolerance_rad=payload.tolerance_rad,
+        rate_hz=payload.rate_hz,
+        timeout_sec=payload.timeout_sec,
+        wait_for_subscriber_timeout=payload.wait_for_subscriber_timeout,
+        wait_for_odom_timeout=payload.wait_for_odom_timeout,
+    )
+    if not result.get("ok"):
+        reason = result.get("reason") or "rotate angle failed"
+        status_code = 409 if reason == "no_cmd_vel_subscriber" else 503 if reason == "odom_yaw_unavailable" else 408
+        raise HTTPException(status_code=status_code, detail=result)
+
+    return {
+        "status": "accepted",
+        "mode": "closed_loop_angle",
+        "topic_name": publisher.topic_name,
+        "odom_topic": publisher.odom_topic_name,
+        "subscriber_count": int(result.get("subscriber_count") or 0),
+        "command": {
+            "angle_rad": payload.angle_rad,
+            "angular_z": payload.angular_z,
+            "tolerance_rad": payload.tolerance_rad,
+            "rate_hz": payload.rate_hz,
+            "timeout_sec": payload.timeout_sec,
+        },
+        "result": result,
+    }
 
 
 @app.post("/api/teleop/stop", response_model=StopResponse)
