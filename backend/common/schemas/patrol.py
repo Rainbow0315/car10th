@@ -79,5 +79,6 @@ class PatrolRuntimePayload(BaseModel):
     current_goal: Optional[PatrolWaypoint] = None
     last_pose: Optional[Dict[str, float]] = None
     message: Optional[str] = None
+    detection_monitor_started: bool = False
     updated_at: datetime
 

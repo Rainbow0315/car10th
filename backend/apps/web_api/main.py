@@ -11,6 +11,7 @@ from common.config import settings
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    inspection_monitor_service.bind_loop()
     mqtt_service.start()
     await mqtt_service.start_heartbeat()
     yield

@@ -17,6 +17,9 @@ from common.schemas.inspection import (
 
 
 class InspectionPipeline:
+    _ROAD_MODEL_ALIASES = {"unified", "road", "road_inspection", "crack", "puddle", "fod"}
+    _SUPPORTED_MODELS = {"unified", "crack", "puddle", "fod"}
+
     def __init__(self) -> None:
         self._detectors: Dict[str, object] = {}
 
@@ -123,18 +126,53 @@ class InspectionPipeline:
 
     def _normalize_models(self, models: Iterable[str]) -> List[str]:
         normalized = []
+        road_requested = False
         for model_name in models:
             value = str(model_name).strip().lower()
+            if not value:
+                continue
+            if value in self._ROAD_MODEL_ALIASES:
+                road_requested = True
+                continue
             if value and value not in normalized:
                 normalized.append(value)
+        if road_requested:
+            normalized.insert(0, "unified")
         return normalized or list(settings.default_enabled_models)
+
+    def release_model(self, model_name: str) -> None:
+        detector = self._detectors.pop(model_name, None)
+        if detector is not None and hasattr(detector, "unload"):
+            detector.unload()
+
+    def _switch_mode(self, keep: str) -> None:
+        for model_name in list(self._detectors.keys()):
+            if model_name != keep:
+                self.release_model(model_name)
 
     def _get_detector(self, model_name: str):
         if model_name in self._detectors:
             return self._detectors[model_name]
 
-        if model_name == "crack":
-            detector = CrackDetector(conf=settings.detection_conf, iou=settings.detection_iou, device=settings.inference_device)
+        if model_name not in self._SUPPORTED_MODELS:
+            raise RuntimeError(f"不支持的模型: {model_name}")
+
+        self._switch_mode(keep=model_name)
+
+        if model_name == "unified":
+            detector = CrackDetector(
+                conf=settings.detection_conf,
+                iou=settings.detection_iou,
+                device=settings.inference_device,
+                model_tag="unified",
+            )
+            detector.load_model(settings.model_unified)
+        elif model_name == "crack":
+            detector = CrackDetector(
+                conf=settings.detection_conf,
+                iou=settings.detection_iou,
+                device=settings.inference_device,
+            )
             detector.load_model(settings.model_crack)
         elif model_name == "puddle":
             detector = YoloV7Detector(
@@ -152,9 +190,6 @@ class InspectionPipeline:
                 model_tag="fod",
             )
             detector.load_model(settings.model_fod)
-        else:
-            raise RuntimeError(f"不支持的模型: {model_name}")
-
         self._detectors[model_name] = detector
         return detector
 

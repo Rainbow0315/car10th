@@ -254,6 +254,7 @@ class PatrolRuntime {
   final PatrolWaypointConfig? currentGoal;
   final MapPoint? lastPose;
   final String? message;
+  final bool detectionMonitorStarted;
 
   const PatrolRuntime({
     required this.taskCode,
@@ -264,6 +265,7 @@ class PatrolRuntime {
     required this.currentGoal,
     required this.lastPose,
     required this.message,
+    required this.detectionMonitorStarted,
   });
 }
 

@@ -229,7 +229,7 @@ curl -X POST http://127.0.0.1:8000/api/inspection/monitor/start \
     "timeout_sec": 10,
     "robot_code": "robot_001",
     "camera_code": "usb_cam",
-    "enabled_models": ["puddle", "fod"]
+    "enabled_models": ["unified"]
   }'
 
 curl http://127.0.0.1:8000/api/inspection/monitor/status

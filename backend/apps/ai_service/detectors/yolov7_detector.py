@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 from typing import Any, Dict, List
 
 from .base import BaseDetector
@@ -43,6 +44,12 @@ class YoloV7Detector(BaseDetector):
         self.letterbox = letterbox
         self.non_max_suppression = non_max_suppression
         self.scale_boxes = scale_boxes
+
+    def unload(self) -> None:
+        self.model = None
+        gc.collect()
+        if self.torch is not None and self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()
 
     def detect(self, image_path: str) -> List[Dict[str, Any]]:
         if self.model is None or self.torch is None or self.cv2 is None:

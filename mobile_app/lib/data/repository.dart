@@ -52,7 +52,7 @@ abstract class Repository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   });
   Future<InspectionMonitorStatus> stopInspectionMonitor({
@@ -675,7 +675,7 @@ class CloudRepository extends TcpCarRepository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   }) async {
     final json = await _postJson(
@@ -1196,6 +1196,7 @@ class CloudRepository extends TcpCarRepository {
       currentGoal: currentGoal,
       lastPose: lastPose,
       message: json['message']?.toString(),
+      detectionMonitorStarted: json['detection_monitor_started'] == true,
     );
   }
 }
@@ -1366,7 +1367,7 @@ class MockRepository implements Repository {
     String topicName = '/image_raw',
     String robotCode = 'robot_001',
     String cameraCode = 'usb_cam',
-    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    List<String> enabledModels = const ['unified'],
     String? baseUrl,
   }) async {
     _monitorRunning = true;
@@ -1593,6 +1594,7 @@ class MockRepository implements Repository {
       currentGoal: null,
       lastPose: null,
       message: 'mock running',
+      detectionMonitorStarted: true,
     );
     await _delay(null);
   }
@@ -1620,6 +1622,7 @@ class MockRepository implements Repository {
       currentGoal: _patrolRuntime[taskCode]?.currentGoal,
       lastPose: _patrolRuntime[taskCode]?.lastPose,
       message: 'mock cancelled',
+      detectionMonitorStarted: false,
     );
     await _delay(null);
   }

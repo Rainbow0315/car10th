@@ -10,11 +10,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
+from apps.web_api.services.inspection_monitor_service import inspection_monitor_service
 from apps.web_api.services.slam_service import slam_service
 from apps.web_api.services.teleop_service import teleop_service
 from common.config.database import SessionLocal
+from common.config.settings import settings
 from common.models import VideoAnalysisTask
 from common.models.entities import TaskStatus, TriggerType
+from common.schemas.inspection import InspectionMonitorStartRequest
 
 
 def _now() -> datetime:
@@ -41,6 +44,7 @@ class PatrolRuntimeState:
     current_goal: Optional[Dict[str, Any]] = None
     last_pose: Optional[Dict[str, float]] = None
     message: Optional[str] = None
+    detection_monitor_started: bool = False
     updated_at: datetime = _now()
 
     def snapshot(self) -> Dict[str, Any]:
@@ -53,6 +57,7 @@ class PatrolRuntimeState:
             "current_goal": self.current_goal,
             "last_pose": self.last_pose,
             "message": self.message,
+            "detection_monitor_started": self.detection_monitor_started,
             "updated_at": self.updated_at,
         }
 
@@ -184,6 +189,7 @@ class PatrolService:
             )
             thread.start()
 
+        self._start_detection_monitor(task)
         self._mark_db_running(task_code)
 
     def stop_task(self, task_code: str) -> None:
@@ -199,6 +205,7 @@ class PatrolService:
             teleop_service.stop()
         except HTTPException:
             pass
+        self._stop_detection_monitor(task_code)
         self._mark_db_cancelled(task_code, "cancelled by user")
 
     def _is_running_locked(self, task_code: str) -> bool:
@@ -307,6 +314,50 @@ class PatrolService:
             error = str(exc)[:512]
             self._mark_db_failed(task_code, error)
             self._finish_runtime(task_code, "failed", error)
+        finally:
+            self._stop_detection_monitor(task_code)
+
+    def _start_detection_monitor(self, task: VideoAnalysisTask) -> None:
+        config = task.detection_config if isinstance(task.detection_config, dict) else {}
+        if config.get("enabled") is False:
+            return
+
+        status_snapshot = inspection_monitor_service.status()
+        if status_snapshot.running:
+            self._update_runtime(task.task_code, message="patrol running, existing detection monitor kept")
+            return
+
+        raw_models = config.get("enabled_models") or settings.default_enabled_models
+        enabled_models = [raw_models] if isinstance(raw_models, str) else list(raw_models)
+        request = InspectionMonitorStartRequest(
+            topic_name=str(config.get("topic_name") or settings.inspection_monitor_topic),
+            interval_sec=float(config.get("interval_sec") or settings.inspection_monitor_interval_sec),
+            timeout_sec=float(config.get("timeout_sec") or settings.inspection_monitor_timeout_sec),
+            robot_code=str(config.get("robot_code") or task.robot_code or settings.inspection_monitor_robot_code),
+            camera_code=str(config.get("camera_code") or settings.inspection_monitor_camera_code),
+            enabled_models=enabled_models,
+            output_dir=str(config.get("output_dir") or settings.inspection_monitor_output_dir),
+        )
+
+        try:
+            inspection_monitor_service.start_threadsafe(request)
+            self._update_runtime(task.task_code, detection_monitor_started=True, message="patrol detection monitor started")
+        except Exception as exc:
+            self._update_runtime(task.task_code, message=f"detection monitor start failed: {str(exc)[:160]}")
+
+    def _stop_detection_monitor(self, task_code: str) -> None:
+        with self._lock:
+            runtime = self._runtime.get(task_code)
+            started = bool(runtime is not None and runtime.detection_monitor_started)
+            if runtime is not None:
+                runtime.detection_monitor_started = False
+                runtime.updated_at = _now()
+        if not started:
+            return
+        try:
+            inspection_monitor_service.stop_threadsafe()
+        except Exception as exc:
+            self._update_runtime(task_code, message=f"detection monitor stop failed: {str(exc)[:160]}")
 
     def _wait_until_arrived(self, task_code: str, waypoint: Dict[str, Any], cancel_event: threading.Event) -> None:
         target_x = float(waypoint.get("x") or 0.0)

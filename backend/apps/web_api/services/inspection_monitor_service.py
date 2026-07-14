@@ -19,6 +19,7 @@ class InspectionMonitorService:
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._config = InspectionMonitorStartRequest(
             topic_name=settings.inspection_monitor_topic,
             interval_sec=settings.inspection_monitor_interval_sec,
@@ -36,7 +37,11 @@ class InspectionMonitorService:
         self._total_alarms = 0
         self._last_error: Optional[str] = None
 
+    def bind_loop(self) -> None:
+        self._loop = asyncio.get_running_loop()
+
     async def start(self, request: InspectionMonitorStartRequest) -> InspectionMonitorStatusResponse:
+        self.bind_loop()
         async with self._lock:
             self._config = request
             if self._task is None or self._task.done():
@@ -47,6 +52,7 @@ class InspectionMonitorService:
         return self.status()
 
     async def stop(self) -> InspectionMonitorStatusResponse:
+        self.bind_loop()
         async with self._lock:
             if self._task is not None and not self._task.done():
                 self._task.cancel()
@@ -60,6 +66,18 @@ class InspectionMonitorService:
 
     async def shutdown(self) -> None:
         await self.stop()
+
+    def start_threadsafe(self, request: InspectionMonitorStartRequest, *, timeout_sec: float = 5.0) -> InspectionMonitorStatusResponse:
+        if self._loop is None or not self._loop.is_running():
+            raise RuntimeError("inspection monitor event loop is not ready")
+        future = asyncio.run_coroutine_threadsafe(self.start(request), self._loop)
+        return future.result(timeout=timeout_sec)
+
+    def stop_threadsafe(self, *, timeout_sec: float = 5.0) -> InspectionMonitorStatusResponse:
+        if self._loop is None or not self._loop.is_running():
+            raise RuntimeError("inspection monitor event loop is not ready")
+        future = asyncio.run_coroutine_threadsafe(self.stop(), self._loop)
+        return future.result(timeout=timeout_sec)
 
     def status(self) -> InspectionMonitorStatusResponse:
         running = self._task is not None and not self._task.done()
