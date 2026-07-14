@@ -21,6 +21,18 @@ docker start parking_mysql parking_mqtt
 docker ps --format "table {{.Names}}\t{{.Ports}}"
 ```
 
+Patrol task saving writes to MySQL. The robot-side `/root/car10th/backend/.env` must use the Windows WLAN IP for `MYSQL_HOST`, currently `192.168.137.20`; do not use the VMnet8 IP `192.168.137.1`. If this is wrong, map APIs can still work, but saving patrol tasks fails with: `Host 'jetson-desktop.mshome.net' is not allowed to connect to this MySQL server`.
+
+Quick fix on the robot:
+
+```bash
+cd /root/car10th/backend
+sed -i 's/^MYSQL_HOST=.*/MYSQL_HOST=192.168.137.20/' .env
+sed -i 's/^MQTT_BROKER_HOST=.*/MQTT_BROKER_HOST=192.168.137.20/' .env
+pkill -f "uvicorn apps.web_api.main:app" || true
+nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp/web_api.log 2>&1 &
+```
+
 如果要在告警中心显示 YOLO 风险截图，还要在 Windows 上启动图片接收服务。车端会把风险帧上传到 `192.168.137.20:8010`，截图保存到 `D:\code\car\car10th\backend\runtime\inspection\cloud_frames`：
 
 ```powershell
