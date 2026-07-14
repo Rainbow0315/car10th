@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.web_api.routers import auth, car_finding, fleet, inspection, llm, patrol, robot, slam, teleop
 from apps.web_api.services.inspection_monitor_service import inspection_monitor_service
+from apps.web_api.services.fleet_queue_follow_service import fleet_queue_follow_service
 from apps.web_api.services.mqtt_service import mqtt_service
 from apps.web_api.services.patrol_service import patrol_service
 from common.config import settings
@@ -27,6 +28,7 @@ async def lifespan(_: FastAPI):
     except Exception:
         logger.exception("Patrol scheduler failed during startup; continuing with HTTP APIs")
     yield
+    fleet_queue_follow_service.stop(stop_motion=True)
     patrol_service.shutdown_scheduler()
     await inspection_monitor_service.shutdown()
     if mqtt_started:

@@ -14,7 +14,7 @@ import httpx
 import paho.mqtt.client as mqtt
 
 from common.config.settings import settings
-from common.mqtt import robot_ack_topic, robot_heartbeat_topic, robot_status_up_topic
+from common.mqtt import robot_ack_topic, robot_heartbeat_topic, robot_pose_topic, robot_status_up_topic
 
 
 class RobotAgent:
@@ -32,6 +32,7 @@ class RobotAgent:
         self.escort_target_robot_code: str | None = None
         self.hostname = socket.gethostname()
         self.agent_version = self._load_deployed_commit()
+        self._last_pose_error: str | None = None
         self.stop_event = Event()
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -82,27 +83,30 @@ class RobotAgent:
         )
 
     def publish_status(self, status: str = "online", mode: str | None = None) -> None:
-        self._publish(
-            robot_status_up_topic(self.robot_code),
-            {
-                "robot_code": self.robot_code,
-                "status": status,
-                "mode": mode or self.mode,
-                "battery": 100 if self.dry_run else 0,
-                "network_latency": 0,
-                "agent_hostname": self.hostname,
-                "agent_version": self.agent_version,
-                "agent_ip": self._local_ip(),
-                "formation_id": self.formation_id,
-                "formation_role": self.formation_role,
-                "formation_slot": self.formation_slot,
-                "rescue_incident_id": self.rescue_incident_id,
-                "rescue_target_robot_code": self.rescue_target_robot_code,
-                "escort_mission_id": self.escort_mission_id,
-                "escort_target_robot_code": self.escort_target_robot_code,
-                "timestamp": self._now_iso(),
-            },
-        )
+        payload = {
+            "robot_code": self.robot_code,
+            "status": status,
+            "mode": mode or self.mode,
+            "battery": 100 if self.dry_run else 0,
+            "network_latency": 0,
+            "agent_hostname": self.hostname,
+            "agent_version": self.agent_version,
+            "agent_ip": self._local_ip(),
+            "formation_id": self.formation_id,
+            "formation_role": self.formation_role,
+            "formation_slot": self.formation_slot,
+            "rescue_incident_id": self.rescue_incident_id,
+            "rescue_target_robot_code": self.rescue_target_robot_code,
+            "escort_mission_id": self.escort_mission_id,
+            "escort_target_robot_code": self.escort_target_robot_code,
+            "timestamp": self._now_iso(),
+        }
+        pose_payload = self._current_pose_payload() if status == "online" else None
+        if pose_payload is not None:
+            payload.update(pose_payload)
+        self._publish(robot_status_up_topic(self.robot_code), payload)
+        if pose_payload is not None:
+            self._publish(robot_pose_topic(self.robot_code), {**payload, "message_type": "pose"})
 
     def _publish(self, topic: str, payload: Dict[str, Any]) -> None:
         result = self.client.publish(
@@ -476,6 +480,38 @@ class RobotAgent:
                 "detail": f"stop failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
             }
         return {"ok": True, "detail": "stop command sent to ROS bridge"}
+
+    def _current_pose_payload(self) -> Dict[str, Any] | None:
+        if self.dry_run:
+            return None
+        url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/slam/map"
+        try:
+            with httpx.Client(timeout=httpx.Timeout(1.5, connect=0.5), trust_env=False) as client:
+                response = client.get(url)
+                response.raise_for_status()
+                snapshot = response.json()
+        except Exception as exc:
+            message = f"pose unavailable from {url}: {exc}"
+            if message != self._last_pose_error:
+                print(message, flush=True)
+                self._last_pose_error = message
+            return None
+
+        pose = snapshot.get("robot_pose") if isinstance(snapshot, dict) else None
+        if not isinstance(pose, dict):
+            return None
+        try:
+            payload = {
+                "pose_x": float(pose["x"]),
+                "pose_y": float(pose["y"]),
+                "pose_yaw": float(pose.get("yaw") or 0.0),
+                "map_name": str(snapshot.get("frame_id") or "map"),
+                "pose_source": "ros_bridge:/api/slam/map",
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+        self._last_pose_error = None
+        return payload
 
     @staticmethod
     def _now_iso() -> str:

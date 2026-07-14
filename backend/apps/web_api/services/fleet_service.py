@@ -44,6 +44,8 @@ class FleetService:
             current["pose_x"] = self._optional_float(payload.get("pose_x"), current.get("pose_x"))
             current["pose_y"] = self._optional_float(payload.get("pose_y"), current.get("pose_y"))
             current["pose_yaw"] = self._optional_float(payload.get("pose_yaw"), current.get("pose_yaw"))
+            if any(payload.get(name) is not None for name in ("pose_x", "pose_y", "pose_yaw")):
+                current["pose_updated_at"] = now
             current["map_name"] = payload.get("map_name") or current.get("map_name")
             current["agent_hostname"] = payload.get("agent_hostname") or payload.get("hostname") or current.get("agent_hostname")
             current["agent_version"] = payload.get("agent_version") or current.get("agent_version")
@@ -291,6 +293,7 @@ class FleetService:
             "pose_x": None,
             "pose_y": None,
             "pose_yaw": None,
+            "pose_updated_at": None,
             "map_name": None,
             "agent_hostname": None,
             "agent_version": None,

@@ -8,6 +8,7 @@ from common.mqtt.topics import (
     fleet_command_topic,
     robot_ack_topic,
     robot_heartbeat_topic,
+    robot_pose_topic,
     robot_status_topic,
     robot_status_up_topic,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "fleet_command_topic",
     "robot_ack_topic",
     "robot_heartbeat_topic",
+    "robot_pose_topic",
     "robot_status_topic",
     "robot_status_up_topic",
 ]

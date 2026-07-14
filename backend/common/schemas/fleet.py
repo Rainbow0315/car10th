@@ -20,6 +20,7 @@ class FleetRobotSnapshot(BaseModel):
     pose_x: Optional[float] = None
     pose_y: Optional[float] = None
     pose_yaw: Optional[float] = None
+    pose_updated_at: Optional[datetime] = None
     map_name: Optional[str] = None
     agent_hostname: Optional[str] = None
     agent_version: Optional[str] = None
@@ -360,3 +361,49 @@ class FleetFormationSnapshot(BaseModel):
 
 class FleetFormationListResponse(BaseModel):
     formations: list[FleetFormationSnapshot]
+
+
+class FleetQueueFollowStartRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=2, max_length=5)
+    leader_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    spacing_m: float = Field(0.75, ge=0.3, le=3.0)
+    target_lag_sec: float = Field(1.8, ge=0.3, le=8.0)
+    interval_sec: float = Field(0.6, ge=0.2, le=2.0)
+    max_linear_x: float = Field(0.16, ge=0.03, le=0.25)
+    max_angular_z: float = Field(0.45, ge=0.05, le=0.8)
+    require_all_ready: bool = True
+
+
+class FleetQueueFollowStopRequest(BaseModel):
+    robot_codes: Optional[list[str]] = Field(default=None, max_length=5)
+    stop_motion: bool = True
+
+
+class FleetQueueFollowMemberSnapshot(BaseModel):
+    robot_code: str
+    role: str
+    target_robot_code: Optional[str] = None
+    target_lag_sec: float
+    spacing_m: float
+    last_command: Optional[Dict[str, Any]] = None
+    last_error: Optional[str] = None
+
+
+class FleetQueueFollowStatusResponse(BaseModel):
+    active: bool
+    session_id: Optional[str] = None
+    leader_robot_code: Optional[str] = None
+    robot_codes: list[str] = Field(default_factory=list)
+    started_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    loop_count: int = 0
+    pose_max_age_sec: float
+    members: list[FleetQueueFollowMemberSnapshot] = Field(default_factory=list)
+
+
+class FleetQueueFollowStartResponse(FleetQueueFollowStatusResponse):
+    detail: str
+
+
+class FleetQueueFollowStopResponse(FleetQueueFollowStatusResponse):
+    detail: str

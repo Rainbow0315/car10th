@@ -534,6 +534,8 @@ class TcpCarRepository extends MockRepository {
 class CloudRepository extends TcpCarRepository {
   CloudRepository({required super.settings});
 
+  bool _queueFollowStarted = false;
+
   Uri _uri(
     String path, {
     Map<String, String?> query = const {},
@@ -1019,6 +1021,64 @@ class CloudRepository extends TcpCarRepository {
   @override
   Future<void> stopFleetRobots({required List<String> robotCodes}) async {
     await super.stopFleetRobots(robotCodes: robotCodes);
+  }
+
+  @override
+  Future<void> startFleetTracking({required List<String> robotCodes}) async {
+    final codes = robotCodes.isEmpty ? [settings.controlRobotCode] : robotCodes;
+    if (codes.length < 2) {
+      await super.startFleetTracking(robotCodes: codes);
+      return;
+    }
+    final leaderCode = codes.first;
+    try {
+      await _postJson('/api/fleet/queue-follow/start', {
+        'robot_codes': codes,
+        'leader_robot_code': leaderCode,
+        'spacing_m': 0.75,
+        'target_lag_sec': 1.8,
+        'interval_sec': 0.6,
+        'max_linear_x': 0.16,
+        'max_angular_z': 0.45,
+        'require_all_ready': true,
+      });
+      _queueFollowStarted = true;
+      await _sendFleetRaw([leaderCode], _encode('63', []));
+    } catch (_) {
+      if (_queueFollowStarted) {
+        try {
+          await _postJson('/api/fleet/queue-follow/stop', {
+            'robot_codes': codes,
+            'stop_motion': true,
+          });
+        } catch (_) {
+          // Fall back to the already-tested TCP behavior even if cleanup fails.
+        }
+      }
+      _queueFollowStarted = false;
+      await super.startFleetTracking(robotCodes: codes);
+    }
+  }
+
+  @override
+  Future<void> stopFleetTracking({required List<String> robotCodes}) async {
+    Object? queueStopError;
+    if (_queueFollowStarted) {
+      try {
+        await _postJson('/api/fleet/queue-follow/stop', {
+          'robot_codes': robotCodes,
+          'stop_motion': true,
+        });
+      } catch (e) {
+        queueStopError = e;
+      } finally {
+        _queueFollowStarted = false;
+      }
+    }
+    await super.stopFleetTracking(robotCodes: robotCodes);
+    if (queueStopError != null) {
+      throw StateError('Queue follow stop failed after TCP stop: $queueStopError');
+    }
   }
 
   @override

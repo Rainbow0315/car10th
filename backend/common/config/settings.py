@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,10 +39,17 @@ class Settings(BaseSettings):
     robot_agent_status_interval_sec: int = 2
     fleet_robot_offline_sec: int = 10
     fleet_command_ack_timeout_sec: int = 5
+    fleet_queue_follow_interval_sec: float = 0.6
+    fleet_queue_follow_spacing_m: float = 0.75
+    fleet_queue_follow_target_lag_sec: float = 1.8
+    fleet_queue_follow_pose_max_age_sec: float = 3.0
+    fleet_queue_follow_max_linear_x: float = 0.16
+    fleet_queue_follow_max_angular_z: float = 0.45
 
     rosbridge_ws_url: str = "ws://127.0.0.1:9090"
     ros_bridge_http_url: str = "http://127.0.0.1:8001"
     ai_service_http_url: str = "http://127.0.0.1:8002"
+    ai_service_robot_urls: Dict[str, str] = {}
 
     llm_api_base: str = ""
     llm_api_key: str = ""

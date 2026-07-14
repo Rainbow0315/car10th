@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, status
 
 from apps.web_api.services.fleet_service import fleet_service
+from apps.web_api.services.fleet_queue_follow_service import fleet_queue_follow_service
 from apps.web_api.services.fleet_teleop_service import (
     send_cmd_vel_to_ros_bridges,
     stop_ros_bridges,
@@ -32,6 +33,11 @@ from common.schemas.fleet import (
     FleetHazardAvoidanceResponse,
     FleetPlateVerifyRequest,
     FleetPlateVerifyResponse,
+    FleetQueueFollowStartRequest,
+    FleetQueueFollowStartResponse,
+    FleetQueueFollowStatusResponse,
+    FleetQueueFollowStopRequest,
+    FleetQueueFollowStopResponse,
     FleetReadinessRequest,
     FleetReadinessResponse,
     FleetRescueApproachRequest,
@@ -179,6 +185,59 @@ def stop_fleet_teleop(request: FleetTeleopStopRequest):
         command="stop",
         members=result["members"],
     )
+
+
+@router.post(
+    "/queue-follow/start",
+    response_model=FleetQueueFollowStartResponse,
+    summary="Start centralized queue follow for multiple robots",
+)
+def start_queue_follow(request: FleetQueueFollowStartRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if len(robot_codes) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="queue follow requires at least two robots",
+        )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
+    try:
+        snapshot = fleet_queue_follow_service.start(
+            robot_codes=robot_codes,
+            leader_robot_code=request.leader_robot_code,
+            spacing_m=request.spacing_m,
+            target_lag_sec=request.target_lag_sec,
+            interval_sec=request.interval_sec,
+            max_linear_x=request.max_linear_x,
+            max_angular_z=request.max_angular_z,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return FleetQueueFollowStartResponse(
+        **snapshot,
+        detail="queue follow started; leader should keep running the existing person-follow mode",
+    )
+
+
+@router.post(
+    "/queue-follow/stop",
+    response_model=FleetQueueFollowStopResponse,
+    summary="Stop centralized queue follow",
+)
+def stop_queue_follow(request: FleetQueueFollowStopRequest):
+    snapshot = fleet_queue_follow_service.stop(stop_motion=request.stop_motion)
+    return FleetQueueFollowStopResponse(
+        **snapshot,
+        detail="queue follow stopped",
+    )
+
+
+@router.get(
+    "/queue-follow/status",
+    response_model=FleetQueueFollowStatusResponse,
+    summary="Get queue follow runtime status",
+)
+def get_queue_follow_status():
+    return FleetQueueFollowStatusResponse.model_validate(fleet_queue_follow_service.status())
 
 
 @router.post(
