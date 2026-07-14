@@ -415,32 +415,32 @@ LLM 触发核验：
 
 ## 9. 核心场景验收清单
 
-| 场景 | 验收动作 | 通过标准 |
-| --- | --- | --- |
-| 单车遥控 | App/TCP 下发前进、停止 | 小车真实运动并停止 |
-| 地图展示 | 打开 App 地图页刷新 | 显示真实 `/map` 栅格、位姿和雷达点 |
-| 目标导航 | App 点选目标并下发 | ROS 侧收到 `/goal_pose` |
-| 摄像头预览 | 请求 snapshot/MJPEG | 返回真实摄像头图像 |
-| AI 检测 | 启动 monitor 或单帧检测 | 返回裂缝/积水/异物检测结果 |
-| 告警闭环 | 触发并处理告警 | 列表可见、详情有图、处理状态更新 |
-| 声光联动 | 触发危险场景 | 灯光/音频现场真实响应 |
-| LLM 助手 | 输入自然语言任务 | 生成计划，运动任务需确认 |
-| 多车协同 | 两台车在线并批量命令 | 每台车独立 ACK，状态可查 |
-| 运维部署 | 重启服务或部署版本 | 服务恢复，接口健康检查通过 |
+| 场景     | 验收动作              | 通过标准                  |
+| ------ | ----------------- | --------------------- |
+| 单车遥控   | App/TCP 下发前进、停止   | 小车真实运动并停止             |
+| 地图展示   | 打开 App 地图页刷新      | 显示真实 `/map` 栅格、位姿和雷达点 |
+| 目标导航   | App 点选目标并下发       | ROS 侧收到 `/goal_pose`  |
+| 摄像头预览  | 请求 snapshot/MJPEG | 返回真实摄像头图像             |
+| AI 检测  | 启动 monitor 或单帧检测  | 返回裂缝/积水/异物检测结果        |
+| 告警闭环   | 触发并处理告警           | 列表可见、详情有图、处理状态更新      |
+| 声光联动   | 触发危险场景            | 灯光/音频现场真实响应           |
+| LLM 助手 | 输入自然语言任务          | 生成计划，运动任务需确认          |
+| 多车协同   | 两台车在线并批量命令        | 每台车独立 ACK，状态可查        |
+| 运维部署   | 重启服务或部署版本         | 服务恢复，接口健康检查通过         |
 
 ## 10. 当前仓库功能对应关系
 
-| 需求能力 | 当前代码/文档依据 |
-| --- | --- |
-| 鉴权与角色 | `backend/apps/web_api/routers/auth.py`、`backend/common/schemas/auth.py` |
-| 单车状态与 MQTT | `backend/apps/web_api/routers/robot.py`、`backend/apps/robot_agent/main.py`、`docs/mqtt_setup.md` |
-| TCP 遥控、灯光、音频 | `backend/apps/tcp_car_bridge/main.py`、`light_show.py`、`audio_player.py` |
-| ROS HTTP 遥控 | `backend/apps/web_api/routers/teleop.py`、`backend/apps/ros_bridge/main.py` |
-| SLAM 地图导航 | `backend/apps/web_api/routers/slam.py`、`docs/slam_map_app_plan.md` |
-| AI 检测与告警 | `backend/apps/web_api/routers/inspection.py`、`backend/apps/ai_service/`、`docs/ros_ai_runtime.md` |
-| 告警 App 页面 | `mobile_app/lib/features/alarm/` |
-| 地图 App 页面 | `mobile_app/lib/features/map/map_page.dart` |
-| 任务配置 App 页面 | `mobile_app/lib/features/task/task_config_page.dart` |
-| LLM 助手 | `backend/apps/web_api/routers/llm.py`、`llm_task_service.py`、`docs/llm_mobile_task_assistant.md` |
-| 多车协同 | `backend/apps/web_api/routers/fleet.py`、`backend/common/schemas/fleet.py`、`docs/fleet_communication.md` |
-| 日常启动与联调 | `docs/robot_daily_startup.md` |
+| 需求能力         | 当前代码/文档依据                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| 鉴权与角色        | `backend/apps/web_api/routers/auth.py`、`backend/common/schemas/auth.py`                                 |
+| 单车状态与 MQTT   | `backend/apps/web_api/routers/robot.py`、`backend/apps/robot_agent/main.py`、`docs/mqtt_setup.md`         |
+| TCP 遥控、灯光、音频 | `backend/apps/tcp_car_bridge/main.py`、`light_show.py`、`audio_player.py`                                 |
+| ROS HTTP 遥控  | `backend/apps/web_api/routers/teleop.py`、`backend/apps/ros_bridge/main.py`                              |
+| SLAM 地图导航    | `backend/apps/web_api/routers/slam.py`、`docs/slam_map_app_plan.md`                                      |
+| AI 检测与告警     | `backend/apps/web_api/routers/inspection.py`、`backend/apps/ai_service/`、`docs/ros_ai_runtime.md`        |
+| 告警 App 页面    | `mobile_app/lib/features/alarm/`                                                                        |
+| 地图 App 页面    | `mobile_app/lib/features/map/map_page.dart`                                                             |
+| 任务配置 App 页面  | `mobile_app/lib/features/task/task_config_page.dart`                                                    |
+| LLM 助手       | `backend/apps/web_api/routers/llm.py`、`llm_task_service.py`、`docs/llm_mobile_task_assistant.md`         |
+| 多车协同         | `backend/apps/web_api/routers/fleet.py`、`backend/common/schemas/fleet.py`、`docs/fleet_communication.md` |
+| 日常启动与联调      | `docs/robot_daily_startup.md`                                                                           |

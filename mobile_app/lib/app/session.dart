@@ -66,7 +66,9 @@ class AppSession extends ChangeNotifier {
   bool canManageUsers() => _role == UserRole.admin;
   bool canSystemSettings() => _role == UserRole.admin;
   bool canTaskConfig() =>
-      _role == UserRole.admin || _role == UserRole.dutyOfficer;
+      _role == UserRole.admin ||
+      _role == UserRole.dutyOfficer ||
+      _role == UserRole.operator;
   bool canRemoteControl() =>
       _role == UserRole.admin || _role == UserRole.operator;
   bool canHandleAlarm() =>

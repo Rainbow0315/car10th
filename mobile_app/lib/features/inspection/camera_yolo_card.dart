@@ -97,13 +97,15 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
             )
           : await _repo.stopInspectionMonitor(baseUrl: _target.apiBaseUrl);
       if (!mounted) return;
-      setState(() => _monitorFuture = Future.value(status));
-    } catch (_) {
+      setState(() {
+        _monitorFuture = Future.value(status);
+      });
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('检测操作失败'),
-          duration: Duration(seconds: 3),
+        SnackBar(
+          content: Text('检测操作失败：${_shortMessage(error)}'),
+          duration: const Duration(seconds: 5),
         ),
       );
     } finally {
@@ -283,6 +285,12 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
     return '${value.hour.toString().padLeft(2, '0')}:'
         '${value.minute.toString().padLeft(2, '0')}:'
         '${value.second.toString().padLeft(2, '0')}';
+  }
+
+  String _shortMessage(Object error) {
+    final clean = error.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (clean.length <= 180) return clean;
+    return '${clean.substring(0, 180)}...';
   }
 }
 

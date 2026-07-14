@@ -52,7 +52,9 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
           .read<Repository>()
           .markAlarmHandled(id: alarm.id, remark: remark);
       if (!mounted) return;
-      setState(() => _future = Future.value(updated));
+      setState(() {
+        _future = Future.value(updated);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('告警已标记为已处理')),
       );

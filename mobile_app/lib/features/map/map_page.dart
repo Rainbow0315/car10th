@@ -5,12 +5,14 @@ import 'dart:ui' show PointMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../app/app_settings.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
 
 enum _MapMode {
   calibrate,
   navigate,
+  patrol,
 }
 
 class MapPage extends StatefulWidget {
@@ -24,12 +26,14 @@ class _MapPageState extends State<MapPage> {
   SlamMap? _map;
   MapPoint? _initialPose;
   MapPoint? _goal;
+  final List<MapPoint> _patrolWaypoints = [];
   final TransformationController _mapTransformController =
       TransformationController();
   _MapMode _mode = _MapMode.calibrate;
   bool _calibrated = false;
   bool _loading = false;
   bool _submitting = false;
+  bool _savingPatrol = false;
   bool _draggingPose = false;
   String? _error;
   Offset? _lastDoubleTapPosition;
@@ -138,12 +142,71 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+  Future<void> _savePatrolTask({bool scheduled = false}) async {
+    if (_patrolWaypoints.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('至少选择 2 个巡航航点')),
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    final defaultName =
+        '地图巡航 ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final draft = await showDialog<_PatrolSaveDraft>(
+      context: context,
+      builder: (context) => _PatrolSaveDialog(
+        defaultName: defaultName,
+        scheduled: scheduled,
+      ),
+    );
+    if (draft == null || !mounted) return;
+
+    setState(() {
+      _savingPatrol = true;
+      _error = null;
+    });
+
+    try {
+      final robotCode = context.read<AppSettings>().selectedControlTarget.code;
+      final waypoints = _patrolWaypoints
+          .asMap()
+          .entries
+          .map(
+            (entry) => PatrolWaypointConfig(
+              seq: entry.key + 1,
+              name: '航点 ${entry.key + 1}',
+              point: entry.value,
+            ),
+          )
+          .toList(growable: false);
+      await context.read<Repository>().createPatrolTask(
+            name: draft.name,
+            robotCode: robotCode,
+            waypoints: waypoints,
+            loopCount: draft.loopCount,
+            scheduleCron: draft.scheduleCron,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已保存巡航任务：${draft.name}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _savingPatrol = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final map = _map;
     final hasGrid = map?.hasGrid == true;
     final calibrating = _mode == _MapMode.calibrate;
+    final navigating = _mode == _MapMode.navigate;
+    final patrolEditing = _mode == _MapMode.patrol;
 
     return Scaffold(
       appBar: AppBar(
@@ -165,9 +228,12 @@ class _MapPageState extends State<MapPage> {
             tooltip: '重新校准当前位置',
           ),
           IconButton(
-            onPressed: () => setState(() => _goal = null),
+            onPressed: () => setState(() {
+              _goal = null;
+              if (_mode == _MapMode.patrol) _patrolWaypoints.clear();
+            }),
             icon: const Icon(Icons.clear),
-            tooltip: '清除目标',
+            tooltip: patrolEditing ? '清空巡航路线' : '清除目标',
           ),
         ],
       ),
@@ -240,6 +306,8 @@ class _MapPageState extends State<MapPage> {
                                 map: map,
                                 initialPose: _initialPose,
                                 goal: _goal,
+                                patrolWaypoints: List<MapPoint>.unmodifiable(
+                                    _patrolWaypoints),
                                 calibrated: _calibrated,
                               ),
                               child: _MapOverlay(
@@ -257,6 +325,30 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
             const SizedBox(height: 10),
+            SegmentedButton<_MapMode>(
+              segments: const [
+                ButtonSegment(
+                  value: _MapMode.calibrate,
+                  icon: Icon(Icons.my_location),
+                  label: Text('校准'),
+                ),
+                ButtonSegment(
+                  value: _MapMode.navigate,
+                  icon: Icon(Icons.navigation_outlined),
+                  label: Text('导航'),
+                ),
+                ButtonSegment(
+                  value: _MapMode.patrol,
+                  icon: Icon(Icons.alt_route_outlined),
+                  label: Text('巡航'),
+                ),
+              ],
+              selected: {_mode},
+              onSelectionChanged: _submitting || _savingPatrol
+                  ? null
+                  : (selection) => setState(() => _mode = selection.first),
+            ),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -272,7 +364,7 @@ class _MapPageState extends State<MapPage> {
                   label: Text(_calibrated ? '重新校准' : '校准当前位置'),
                 ),
                 FilledButton.icon(
-                  onPressed: calibrating ||
+                  onPressed: !navigating ||
                           _initialPose == null ||
                           _goal == null ||
                           _submitting
@@ -280,6 +372,32 @@ class _MapPageState extends State<MapPage> {
                       : _sendGoal,
                   icon: const Icon(Icons.navigation_outlined),
                   label: Text(_calibrated ? '下发目标' : '先完成校准'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: patrolEditing && _patrolWaypoints.isNotEmpty
+                      ? () => setState(() => _patrolWaypoints.removeLast())
+                      : null,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('撤销航点'),
+                ),
+                FilledButton.icon(
+                  onPressed: patrolEditing && !_savingPatrol
+                      ? () => unawaited(_savePatrolTask())
+                      : null,
+                  icon: _savingPatrol
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: const Text('保存巡航路线'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: patrolEditing && !_savingPatrol
+                      ? () => unawaited(_savePatrolTask(scheduled: true))
+                      : null,
+                  icon: const Icon(Icons.schedule),
+                  label: const Text('保存定时巡航'),
                 ),
               ],
             ),
@@ -304,19 +422,25 @@ class _MapPageState extends State<MapPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        calibrating ? '步骤 1：校准当前位置' : '步骤 2：选择导航目标',
+                        calibrating
+                            ? '步骤 1：校准当前位置'
+                            : patrolEditing
+                                ? '巡航路线：地图选点'
+                                : '步骤 2：选择导航目标',
                         style: theme.textTheme.titleSmall,
                       ),
                       const SizedBox(height: 6),
                       Text(_mapSummary(map)),
                       Text(_initialPoseSummary()),
-                      Text(_goalSummary()),
+                      Text(patrolEditing ? _patrolSummary() : _goalSummary()),
                       Text(
                         _draggingPose
                             ? '操作：松手后保留当前箭头朝向'
                             : calibrating
                                 ? '操作：点按设置小车当前位置，长按拖动设置当前朝向，然后确认校准。'
-                                : '操作：点按设置目标位置，长按拖动设置最终朝向，双指缩放，双击放大/复位。',
+                                : patrolEditing
+                                    ? '操作：点按地图追加巡航航点，长按拖动设置最后一个航点朝向，双指缩放，双击放大/复位。'
+                                    : '操作：点按设置目标位置，长按拖动设置最终朝向，双指缩放，双击放大/复位。',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -376,6 +500,18 @@ class _MapPageState extends State<MapPage> {
       return;
     }
 
+    if (_mode == _MapMode.patrol) {
+      final existingYaw = _patrolWaypoints.isNotEmpty
+          ? _patrolWaypoints.last.yaw
+          : map.robotPose?.yaw ?? 0.0;
+      setState(() {
+        _patrolWaypoints.add(
+          MapPoint(x: point.x, y: point.y, yaw: existingYaw),
+        );
+      });
+      return;
+    }
+
     if (!_calibrated) return;
     final existingYaw = _goal?.yaw ?? map.robotPose?.yaw ?? 0.0;
     setState(() {
@@ -384,7 +520,11 @@ class _MapPageState extends State<MapPage> {
   }
 
   void _setActivePoseYaw(Offset canvasPoint, Size size, SlamMap map) {
-    final activePose = _mode == _MapMode.calibrate ? _initialPose : _goal;
+    final activePose = _mode == _MapMode.calibrate
+        ? _initialPose
+        : _mode == _MapMode.patrol
+            ? (_patrolWaypoints.isEmpty ? null : _patrolWaypoints.last)
+            : _goal;
     if (activePose == null) return;
 
     final dragPoint = _canvasToMap(canvasPoint, size, map);
@@ -400,6 +540,8 @@ class _MapPageState extends State<MapPage> {
     setState(() {
       if (_mode == _MapMode.calibrate) {
         _initialPose = updated;
+      } else if (_mode == _MapMode.patrol && _patrolWaypoints.isNotEmpty) {
+        _patrolWaypoints[_patrolWaypoints.length - 1] = updated;
       } else if (_calibrated) {
         _goal = updated;
       }
@@ -462,6 +604,110 @@ class _MapPageState extends State<MapPage> {
     if (goal == null) return '目标：点按地图选择';
     return '目标：(${goal.x.toStringAsFixed(2)}, ${goal.y.toStringAsFixed(2)}) yaw=${goal.yaw.toStringAsFixed(2)}';
   }
+
+  String _patrolSummary() {
+    if (_patrolWaypoints.isEmpty) return '巡航：点按地图添加航点';
+    final last = _patrolWaypoints.last;
+    return '巡航：${_patrolWaypoints.length} 个航点，最后 (${last.x.toStringAsFixed(2)}, ${last.y.toStringAsFixed(2)}) yaw=${last.yaw.toStringAsFixed(2)}';
+  }
+}
+
+class _PatrolSaveDraft {
+  final String name;
+  final int loopCount;
+  final String? scheduleCron;
+
+  const _PatrolSaveDraft({
+    required this.name,
+    required this.loopCount,
+    required this.scheduleCron,
+  });
+}
+
+class _PatrolSaveDialog extends StatefulWidget {
+  final String defaultName;
+  final bool scheduled;
+
+  const _PatrolSaveDialog({
+    required this.defaultName,
+    required this.scheduled,
+  });
+
+  @override
+  State<_PatrolSaveDialog> createState() => _PatrolSaveDialogState();
+}
+
+class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _loopCount;
+  late final TextEditingController _scheduleCron;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.defaultName);
+    _loopCount = TextEditingController(text: '1');
+    _scheduleCron = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _loopCount.dispose();
+    _scheduleCron.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.scheduled ? '保存定时巡航' : '保存巡航路线'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: '任务名称'),
+          ),
+          TextField(
+            controller: _loopCount,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: '循环次数'),
+          ),
+          if (widget.scheduled)
+            TextField(
+              controller: _scheduleCron,
+              decoration: const InputDecoration(
+                labelText: '定时 cron',
+                hintText: '0 22 * * *',
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = _name.text.trim();
+            final loopCount = int.tryParse(_loopCount.text.trim()) ?? 1;
+            final cron = _scheduleCron.text.trim();
+            if (name.isEmpty || loopCount <= 0) return;
+            Navigator.of(context).pop(
+              _PatrolSaveDraft(
+                name: name,
+                loopCount: loopCount,
+                scheduleCron: cron.isEmpty ? null : cron,
+              ),
+            );
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
 }
 
 class _MapOverlay extends StatelessWidget {
@@ -517,12 +763,14 @@ class _SlamMapPainter extends CustomPainter {
   final SlamMap? map;
   final MapPoint? initialPose;
   final MapPoint? goal;
+  final List<MapPoint> patrolWaypoints;
   final bool calibrated;
 
   _SlamMapPainter({
     required this.map,
     required this.initialPose,
     required this.goal,
+    required this.patrolWaypoints,
     required this.calibrated,
   });
 
@@ -571,6 +819,7 @@ class _SlamMapPainter extends CustomPainter {
     }
 
     _drawLaserPoints(canvas, size, current);
+    _drawPatrolRoute(canvas, size, current);
     _drawRobot(canvas, size, current);
     _drawPoseMarker(
       canvas,
@@ -603,6 +852,60 @@ class _SlamMapPainter extends CustomPainter {
       points.add(_mapToCanvas(point, size, map));
     }
     canvas.drawPoints(PointMode.points, points, paint);
+  }
+
+  void _drawPatrolRoute(Canvas canvas, Size size, SlamMap map) {
+    if (patrolWaypoints.isEmpty) return;
+    final routePaint = Paint()
+      ..color = const Color(0xFF8A5CF6)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final markerPaint = Paint()..color = const Color(0xFF8A5CF6);
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+    final path = Path();
+    var started = false;
+    for (final point in patrolWaypoints) {
+      if (!_pointInsideMap(point, map)) continue;
+      final p = _mapToCanvas(point, size, map);
+      if (!started) {
+        path.moveTo(p.dx, p.dy);
+        started = true;
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
+    }
+    canvas.drawPath(path, routePaint);
+
+    for (var i = 0; i < patrolWaypoints.length; i++) {
+      final point = patrolWaypoints[i];
+      if (!_pointInsideMap(point, map)) continue;
+      final p = _mapToCanvas(point, size, map);
+      canvas.drawCircle(p, 10, markerPaint);
+      textPainter.text = TextSpan(
+        text: '${i + 1}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+      textPainter.layout(minWidth: 20, maxWidth: 20);
+      textPainter.paint(canvas, p - const Offset(10, 7));
+      _drawArrow(
+        canvas,
+        p,
+        point.yaw,
+        22,
+        Paint()
+          ..color = const Color(0xFF8A5CF6)
+          ..strokeWidth = 3
+          ..strokeCap = StrokeCap.round,
+      );
+    }
   }
 
   void _drawRobot(Canvas canvas, Size size, SlamMap map) {
@@ -683,6 +986,7 @@ class _SlamMapPainter extends CustomPainter {
     return oldDelegate.map != map ||
         oldDelegate.initialPose != initialPose ||
         oldDelegate.goal != goal ||
+        oldDelegate.patrolWaypoints != patrolWaypoints ||
         oldDelegate.calibrated != calibrated;
   }
 }
