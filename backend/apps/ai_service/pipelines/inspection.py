@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-from apps.ai_service.detectors import CrackDetector, YoloV7Detector
+from apps.ai_service.detectors import CrackDetector, PlateDetector, YoloV7Detector
 from apps.ai_service.ros_image_capture import ros_image_capture_service
 from common.config.settings import settings
 from common.schemas.inspection import (
@@ -18,7 +18,7 @@ from common.schemas.inspection import (
 
 class InspectionPipeline:
     _ROAD_MODEL_ALIASES = {"unified", "road", "road_inspection", "crack", "puddle", "fod"}
-    _SUPPORTED_MODELS = {"unified", "crack", "puddle", "fod"}
+    _SUPPORTED_MODELS = {"unified", "crack", "puddle", "fod", "plate"}
 
     def __init__(self) -> None:
         self._detectors: Dict[str, object] = {}
@@ -190,6 +190,13 @@ class InspectionPipeline:
                 model_tag="fod",
             )
             detector.load_model(settings.model_fod)
+        elif model_name == "plate":
+            detector = PlateDetector(
+                conf=settings.plate_detection_conf,
+                iou=settings.detection_iou,
+                device=settings.inference_device,
+            )
+            detector.load_model(settings.model_plate)
         self._detectors[model_name] = detector
         return detector
 

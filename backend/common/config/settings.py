@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     default_enabled_models: List[str] = ["unified"]
     detection_conf: float = 0.25
     detection_iou: float = 0.45
+    plate_detection_conf: float = 0.3
     inference_device: str = "cuda"
     inspection_output_dir: str = str(BASE_DIR / "runtime" / "inspection")
     stream_open_timeout_sec: float = 8.0
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
     model_puddle: str = str(BASE_DIR / "apps/ai_service/weights/puddle_detect.pt")
     model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
     model_unified: str = str(BASE_DIR / "apps/ai_service/weights/road_inspection_6class.pt")
+    model_plate: str = str(BASE_DIR / "apps/ai_service/weights/plate_detect_ccpd.pt")
     inspection_monitor_topic: str = "/image_raw"
     inspection_monitor_interval_sec: float = 1.0
     inspection_monitor_timeout_sec: float = 5.0
@@ -72,6 +74,11 @@ class Settings(BaseSettings):
     inspection_monitor_output_dir: str = str(BASE_DIR / "runtime" / "inspection" / "monitor_frames")
     inspection_monitor_local_frame_dir: str = str(BASE_DIR / "runtime" / "inspection" / "cloud_frames")
     inspection_monitor_download_frames: bool = False
+    inspection_cloud_frame_upload_url: str = "http://192.168.137.20:8010/api/cloud-files/inspection-frames"
+    inspection_cloud_frame_upload_enabled: bool = True
+    inspection_cloud_frame_delete_after_upload: bool = True
+    cloud_file_storage_dir: str = str(BASE_DIR / "runtime" / "inspection" / "cloud_frames")
+    cloud_file_public_base_url: str = "http://192.168.137.20:8010"
     inspection_alarm_min_confidence: float = 0.6
 
     @property

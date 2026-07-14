@@ -1028,6 +1028,16 @@ class CloudRepository extends TcpCarRepository {
   AlarmEvent _alarmFromJson(Map<String, dynamic> json) {
     final id = (json['alarm_no'] ?? json['id']).toString();
     final imageUrl = json['image_url']?.toString();
+    final robotCode = json['robot_code']?.toString();
+    String? imageApiBaseUrl;
+    if (robotCode != null) {
+      for (final target in settings.controlTargets) {
+        if (target.code == robotCode) {
+          imageApiBaseUrl = target.apiBaseUrl;
+          break;
+        }
+      }
+    }
     return AlarmEvent(
       id: id,
       type: _alarmTypeFromApi((json['alarm_type'] ?? '').toString()),
@@ -1042,8 +1052,11 @@ class CloudRepository extends TcpCarRepository {
       ),
       imagePath: imageUrl?.isNotEmpty == true
           ? imageUrl!
-          : _uri('/api/inspection/alarms/$id/image').toString(),
-      robotCode: json['robot_code']?.toString(),
+          : _uri(
+              '/api/inspection/alarms/$id/image',
+              baseUrl: imageApiBaseUrl,
+            ).toString(),
+      robotCode: robotCode,
       cameraCode: json['camera_code']?.toString(),
       detectionModel: json['detection_model']?.toString(),
       detectionLabel: json['detection_label']?.toString(),

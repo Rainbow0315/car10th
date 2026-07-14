@@ -118,10 +118,14 @@ class InspectionMonitorService:
             inspection_alarm_service.remove_non_risk_frame(result)
             return {"result": result, "alarms": []}
 
+        uploaded = self._upload_risk_frame(result)
         self._download_risk_frame(result)
         with SessionLocal() as db:
             alarms = inspection_alarm_service.create_alarms_from_result(db, result, publish_mqtt=True)
-        self._delete_remote_frame(result)
+        if uploaded and settings.inspection_cloud_frame_delete_after_upload:
+            self._delete_remote_frame(result, force=True)
+        else:
+            self._delete_remote_frame(result)
 
         if not alarms:
             return {"result": result, "alarms": []}
@@ -143,8 +147,21 @@ class InspectionMonitorService:
             result["remote_image_path"] = remote_path
             result["image_path"] = local_path
 
-    def _delete_remote_frame(self, result: Dict[str, Any]) -> None:
-        if not settings.inspection_monitor_download_frames:
+    def _upload_risk_frame(self, result: Dict[str, Any]) -> bool:
+        remote_path = str(result.get("image_path") or "")
+        uploaded = inspection_service.upload_frame_to_cloud(remote_path)
+        if not uploaded:
+            return False
+        image_url = str(uploaded.get("image_url") or "")
+        image_path = str(uploaded.get("image_path") or "")
+        if image_url:
+            result["image_url"] = image_url
+        if image_path:
+            result["cloud_image_path"] = image_path
+        return bool(image_url)
+
+    def _delete_remote_frame(self, result: Dict[str, Any], *, force: bool = False) -> None:
+        if not force and not settings.inspection_monitor_download_frames:
             return
         remote_path = str(result.get("remote_image_path") or result.get("image_path") or "")
         if remote_path:

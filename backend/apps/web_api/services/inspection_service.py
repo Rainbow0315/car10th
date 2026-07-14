@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 
@@ -19,8 +20,14 @@ class InspectionService:
     def detect_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/inspection/detect-image", json=payload)
 
+    def detect_plate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/api/inspection/detect-plate", json=payload)
+
     def detect_ros_image(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/api/inspection/detect-ros-image", json=payload)
+
+    def detect_ros_plate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/api/inspection/detect-ros-plate", json=payload)
 
     def camera_snapshot(self, topic_name: str, timeout_sec: float) -> Tuple[bytes, str]:
         url = f"{settings.ai_service_http_url.rstrip('/')}/api/camera/snapshot"
@@ -96,6 +103,41 @@ class InspectionService:
             return None
         target.write_bytes(response.content)
         return str(target)
+
+    def fetch_frame_bytes(self, image_path: str) -> Optional[Tuple[bytes, str]]:
+        if not image_path:
+            return None
+        url = f"{settings.ai_service_http_url.rstrip('/')}/api/inspection/frame"
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.get(url, params={"image_path": image_path})
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return response.content, response.headers.get("content-type", "image/jpeg")
+
+    def upload_frame_to_cloud(self, image_path: str) -> Optional[Dict[str, Any]]:
+        if not settings.inspection_cloud_frame_upload_enabled:
+            return None
+        fetched = self.fetch_frame_bytes(image_path)
+        if fetched is None:
+            return None
+        content, content_type = fetched
+        filename = Path(image_path).name
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.post(
+                    settings.inspection_cloud_frame_upload_url,
+                    json={
+                        "filename": filename,
+                        "content_base64": base64.b64encode(content).decode("ascii"),
+                        "content_type": content_type,
+                    },
+                )
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return response.json()
 
     def delete_frame(self, image_path: str) -> bool:
         if not image_path:

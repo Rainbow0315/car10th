@@ -39,10 +39,34 @@ def detect_image(payload: ImageInspectionRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/inspection/detect-plate", response_model=ImageInspectionResponse)
+def detect_plate(payload: ImageInspectionRequest):
+    try:
+        return inspection_pipeline.inspect_image(
+            payload.model_copy(update={"enabled_models": ["plate"]})
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/inspection/detect-ros-image", response_model=ImageInspectionResponse)
 def detect_ros_image(payload: RosTopicInspectionRequest):
     try:
         return inspection_pipeline.inspect_ros_topic(payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/inspection/detect-ros-plate", response_model=ImageInspectionResponse)
+def detect_ros_plate(payload: RosTopicInspectionRequest):
+    try:
+        return inspection_pipeline.inspect_ros_topic(
+            payload.model_copy(update={"enabled_models": ["plate"]})
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

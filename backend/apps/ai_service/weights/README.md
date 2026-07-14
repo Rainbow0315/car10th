@@ -3,6 +3,7 @@ Place private model weights in this directory.
 Expected default filenames:
 
 - `road_inspection_6class.pt` (current patrol model: road defect / water / foreign object classes)
+- `plate_detect_ccpd.pt` (license plate detector; PaddleOCR is optional for plate text recognition)
 
 Legacy split-model filenames:
 

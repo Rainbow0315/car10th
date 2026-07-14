@@ -35,9 +35,19 @@ def detect_image(payload: ImageInspectionRequest):
     return inspection_service.detect_image(payload.model_dump())
 
 
+@router.post("/detect-plate", response_model=ImageInspectionResponse, summary="Run license plate detection on one image")
+def detect_plate(payload: ImageInspectionRequest):
+    return inspection_service.detect_plate(payload.model_dump())
+
+
 @router.post("/detect-ros-image", response_model=ImageInspectionResponse, summary="Capture one ROS image frame and inspect it")
 def detect_ros_image(payload: RosTopicInspectionRequest):
     return inspection_service.detect_ros_image(payload.model_dump())
+
+
+@router.post("/detect-ros-plate", response_model=ImageInspectionResponse, summary="Capture one ROS image frame and detect plates")
+def detect_ros_plate(payload: RosTopicInspectionRequest):
+    return inspection_service.detect_ros_plate(payload.model_dump())
 
 
 @router.get("/camera/snapshot", summary="Capture one ROS camera frame as JPEG")

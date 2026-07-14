@@ -28,6 +28,7 @@ class InspectionAlarmService:
             return []
 
         image_path = str(result.get("image_path") or "")
+        image_url = str(result.get("image_url") or "") or None
         robot_code = str(result.get("robot_code") or "robot_001")
         camera_code = result.get("camera_code")
         detected_at = self._parse_datetime(result.get("detected_at"))
@@ -43,6 +44,7 @@ class InspectionAlarmService:
                     continue
                 alarm = self._build_alarm(
                     image_path=image_path,
+                    image_url=image_url,
                     robot_code=robot_code,
                     camera_code=camera_code,
                     detected_at=detected_at,
@@ -174,6 +176,7 @@ class InspectionAlarmService:
         self,
         *,
         image_path: str,
+        image_url: Optional[str],
         robot_code: str,
         camera_code: Optional[str],
         detected_at: datetime,
@@ -201,7 +204,7 @@ class InspectionAlarmService:
             robot_code=robot_code,
             camera_code=camera_code,
             image_path=image_path,
-            image_url=None,
+            image_url=image_url,
             detection_model=model_name,
             detection_label=label,
             bbox_json=bbox,

@@ -21,6 +21,21 @@ docker start parking_mysql parking_mqtt
 docker ps --format "table {{.Names}}\t{{.Ports}}"
 ```
 
+如果要在告警中心显示 YOLO 风险截图，还要在 Windows 上启动图片接收服务。车端会把风险帧上传到 `192.168.137.20:8010`，截图保存到 `D:\code\car\car10th\backend\runtime\inspection\cloud_frames`：
+
+```powershell
+cd D:\code\car\car10th\backend
+python scripts\cloud_file_server.py
+```
+
+另开终端验证：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8010/health
+```
+
+预期返回 `{"status":"ok","service":"cloud_file_server"}`。如果这个服务没起，新告警仍能入库，但 `image_url` 为空，App 只能尝试从产图小车读取旧路径。
+
 检查 Windows 到小车：
 
 ```powershell

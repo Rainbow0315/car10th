@@ -31,10 +31,18 @@ enabled_models = ["unified"]
 ```text
 enabled_models = ["plate"]
 目标: 后续找车、车牌 OCR
-状态: 先不接巡航流程
+状态: 单图/单帧检测接口可用，先不接巡航 monitor
 ```
 
 原因：巡航时还要跑直播、导航、雷达和后端服务。车牌模型如果和路面巡检模型一起常驻，Jetson Orin Nano 内存压力会明显变大。
+
+当前车牌检测入口：
+
+```text
+POST /api/inspection/detect-plate      # 输入 image_path
+POST /api/inspection/detect-ros-plate  # 从 /image_raw 抓一帧后检测
+权重: backend/apps/ai_service/weights/plate_detect_ccpd.pt
+```
 
 ## 3. 兼容旧请求
 
