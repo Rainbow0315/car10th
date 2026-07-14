@@ -247,15 +247,15 @@ class RobotAgent:
             motion_result = self._execute_limited_motion(
                 command_payload,
                 action_name="LLM nudge forward",
-                linear_fallback=0.05,
+                linear_fallback=0.18,
                 linear_lower=0.0,
-                linear_upper=0.08,
+                linear_upper=0.18,
                 angular_fallback=0.0,
                 angular_lower=0.0,
                 angular_upper=0.0,
-                duration_fallback=0.8,
+                duration_fallback=1.0,
                 duration_lower=0.1,
-                duration_upper=1.2,
+                duration_upper=2.0,
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
