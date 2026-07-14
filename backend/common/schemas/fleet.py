@@ -113,6 +113,39 @@ class FleetBatchCommandResponse(BaseModel):
     commands: list[FleetCommandSnapshot]
 
 
+class FleetTeleopCommandRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=20)
+    linear_x: float = Field(0.12, ge=-0.3, le=0.3)
+    linear_y: float = Field(0.0, ge=-0.3, le=0.3)
+    angular_z: float = Field(0.0, ge=-1.0, le=1.0)
+    duration: float = Field(5.0, ge=0.0, le=10.0)
+    rate_hz: float = Field(10.0, ge=1.0, le=30.0)
+    wait_for_subscriber_timeout: float = Field(1.0, ge=0.0, le=5.0)
+    require_all_ready: bool = False
+
+
+class FleetTeleopStopRequest(BaseModel):
+    robot_codes: list[str] = Field(..., min_length=1, max_length=20)
+    require_all_ready: bool = False
+
+
+class FleetTeleopMemberResponse(BaseModel):
+    robot_code: str
+    ros_bridge_url: str
+    ok: bool
+    status_code: Optional[int] = None
+    elapsed_ms: float
+    response: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class FleetTeleopResponse(BaseModel):
+    target_robots: list[str]
+    all_ok: bool
+    command: str
+    members: list[FleetTeleopMemberResponse]
+
+
 class FleetRescueRequest(BaseModel):
     disabled_robot_code: str = Field(..., min_length=1, max_length=32)
     responder_robot_code: Optional[str] = Field(default=None, min_length=1, max_length=32)

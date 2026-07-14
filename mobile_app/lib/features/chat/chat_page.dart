@@ -147,7 +147,7 @@ class _ChatPageState extends State<ChatPage> {
               builder: (context) => AlertDialog(
                 title: const Text('安全执行原则'),
                 content: const Text(
-                  'LLM 只负责把自然语言转换成任务计划。真正执行前，后端会检查工具白名单、小车在线状态和确认标记，不允许 LLM 直接下发任意底盘速度。',
+                  '涉及运动的计划会先检查小车状态，并在执行前等待确认。',
                 ),
                 actions: [
                   TextButton(
@@ -279,10 +279,7 @@ class _RuntimeStatusCard extends StatelessWidget {
         : configured
             ? '真实 LLM 已接入'
             : '当前使用规则兜底';
-    final detail = error ??
-        (status == null
-            ? '正在检查后端 LLM 配置…'
-            : '${status!.message}${status!.apiBaseHost == null ? '' : ' 网关：${status!.apiBaseHost}'}');
+    final detail = error ?? (status == null ? '正在检查 LLM 配置…' : status!.message);
 
     return Card(
       child: Padding(

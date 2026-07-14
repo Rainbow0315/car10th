@@ -12,9 +12,14 @@ CONFIG = {
             "bind": "0.0.0.0:1883",
         }
     },
-    "sys_interval": 10,
-    "topic-check": {"enabled": False},
-    "auth": {"allow-anonymous": True},
+    "plugins": {
+        "amqtt.plugins.authentication.AnonymousAuthPlugin": {
+            "allow_anonymous": True,
+        },
+        "amqtt.plugins.sys.broker.BrokerSysPlugin": {
+            "sys_interval": 10,
+        },
+    },
 }
 
 

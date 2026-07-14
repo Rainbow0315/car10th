@@ -270,6 +270,14 @@ class RosImageCaptureService:
 
     def _to_bgr_image(self, msg: RosImage):
         encoding = str(msg.encoding or "").lower()
+        if encoding in {"yuv422p", "yuv422", "yuyv", "yuyv422"}:
+            row = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.step))
+            packed = row[:, : msg.width * 2].reshape((msg.height, msg.width, 2))
+            return cv2.cvtColor(packed, cv2.COLOR_YUV2BGR_YUY2)
+        if encoding in {"uyvy", "uyvy422"}:
+            row = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.step))
+            packed = row[:, : msg.width * 2].reshape((msg.height, msg.width, 2))
+            return cv2.cvtColor(packed, cv2.COLOR_YUV2BGR_UYVY)
         if encoding not in {"bgr8", "rgb8", "bgra8", "rgba8", "mono8"}:
             raise RosImageCaptureError(f"unsupported image encoding: {msg.encoding}")
 

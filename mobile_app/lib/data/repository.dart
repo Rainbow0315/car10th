@@ -25,17 +25,29 @@ abstract class Repository {
   String cameraSnapshotUrl({
     String topicName = '/image_raw',
     int? cacheBust,
+    String? baseUrl,
   });
   String cameraMjpegUrl({
     String topicName = '/image_raw',
     double fps = 5.0,
+    String? baseUrl,
   });
 
   Future<DashboardStats> getDashboardStats();
   Future<RobotStatus> getRobotStatus({required String robotId});
-  Future<InspectionMonitorStatus> getInspectionMonitorStatus();
-  Future<InspectionMonitorStatus> startInspectionMonitor();
-  Future<InspectionMonitorStatus> stopInspectionMonitor();
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus({
+    String? baseUrl,
+  });
+  Future<InspectionMonitorStatus> startInspectionMonitor({
+    String topicName = '/image_raw',
+    String robotCode = 'robot_001',
+    String cameraCode = 'usb_cam',
+    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    String? baseUrl,
+  });
+  Future<InspectionMonitorStatus> stopInspectionMonitor({
+    String? baseUrl,
+  });
   Future<List<AlarmEvent>> listAlarms({
     AlarmType? type,
     RiskLevel? risk,
@@ -58,6 +70,25 @@ abstract class Repository {
   Future<void> setInitialPose({required MapPoint pose});
   Future<void> sendNavGoal({required MapPoint goal});
   Future<void> setRobotMode({required String robotId, required RobotMode mode});
+  Future<void> sendFleetForward({
+    required List<String> robotCodes,
+    double speedMps = 0.12,
+    double durationSeconds = 5.0,
+  });
+  Future<void> sendFleetVelocity({
+    required List<String> robotCodes,
+    required double linearX,
+    required double linearY,
+    required double angularZ,
+    double durationSeconds = 0.35,
+    double rateHz = 10.0,
+  });
+  Future<void> sendFleetVectorMotion({
+    required List<String> robotCodes,
+    required double x,
+    required double y,
+  });
+  Future<void> stopFleetRobots({required List<String> robotCodes});
   Future<void> sendForward({
     required double speedMps,
     double durationSeconds = 3.0,
@@ -163,6 +194,49 @@ class TcpCarRepository extends MockRepository {
   }
 
   @override
+  Future<void> sendFleetVectorMotion({
+    required List<String> robotCodes,
+    required double x,
+    required double y,
+  }) async {
+    final speedX = (x.clamp(-1.0, 1.0) * 100).round();
+    final speedY = (y.clamp(-1.0, 1.0) * 100).round();
+    final message = _encode(
+      '10',
+      [_signedByteHex(speedX), _signedByteHex(speedY)],
+    );
+    await _sendFleetRaw(robotCodes, message);
+  }
+
+  @override
+  Future<void> sendFleetVelocity({
+    required List<String> robotCodes,
+    required double linearX,
+    required double linearY,
+    required double angularZ,
+    double durationSeconds = 0.35,
+    double rateHz = 10.0,
+  }) async {
+    final direction = _directionFromVelocity(
+      linearX: linearX,
+      linearY: linearY,
+      angularZ: angularZ,
+    );
+    await _sendFleetRaw(
+      robotCodes,
+      _encode('15', [_byteHex(direction.value)]),
+    );
+  }
+
+  @override
+  Future<void> stopFleetRobots({required List<String> robotCodes}) async {
+    await _sendFleetRaw(
+      robotCodes,
+      _encode('15', [_byteHex(_CarDirection.stop.value)]),
+    );
+  }
+
+  @override
   Future<void> takePhoto() async {
     await _send(_encode('60', []));
   }
@@ -232,32 +306,48 @@ class TcpCarRepository extends MockRepository {
     if (_disposed) {
       throw StateError('TCP car repository has been disposed');
     }
-    final pending = _sendChain.then((_) => _sendLocked(message));
+    final pending = _sendChain.then(
+      (_) => _sendLocked(settings.tcpHost, settings.tcpPort, message),
+    );
     _sendChain = pending.catchError((_) {});
     return pending;
   }
 
-  Future<void> _sendLocked(String message) async {
+  Future<void> _sendFleetRaw(List<String> robotCodes, String message) async {
+    if (_disposed) {
+      throw StateError('TCP car repository has been disposed');
+    }
+    final codes = robotCodes.isEmpty ? [settings.controlRobotCode] : robotCodes;
+    Future<void> pending = _sendChain;
+    for (final code in codes) {
+      final target = _controlTargetFor(code);
+      pending = pending.then(
+        (_) => _sendLocked(target.host, target.tcpPort, message),
+      );
+    }
+    _sendChain = pending.catchError((_) {});
+    return pending;
+  }
+
+  Future<void> _sendLocked(String host, int port, String message) async {
     try {
-      final socket = await _ensureSocket();
+      final socket = await _ensureSocket(host, port);
       socket.add(ascii.encode(message));
       await socket.flush().timeout(_sendTimeout);
     } on SocketException catch (e) {
       _dropSocket();
       throw StateError(
-        'Cannot connect to car TCP ${settings.tcpHost}:${settings.tcpPort}: ${e.message}',
+        'Cannot connect to car TCP $host:$port: ${e.message}',
       );
     } on TimeoutException {
       _dropSocket();
       throw TimeoutException(
-        'TCP command timed out: ${settings.tcpHost}:${settings.tcpPort}',
+        'TCP command timed out: $host:$port',
       );
     }
   }
 
-  Future<Socket> _ensureSocket() async {
-    final host = settings.tcpHost;
-    final port = settings.tcpPort;
+  Future<Socket> _ensureSocket(String host, int port) async {
     final current = _socket;
     if (current != null && _socketHost == host && _socketPort == port) {
       return current;
@@ -279,6 +369,35 @@ class TcpCarRepository extends MockRepository {
       }),
     );
     return socket;
+  }
+
+  RobotControlTarget _controlTargetFor(String code) {
+    return settings.controlTargets.firstWhere(
+      (target) => target.code == code,
+      orElse: () => settings.selectedControlTarget,
+    );
+  }
+
+  _CarDirection _directionFromVelocity({
+    required double linearX,
+    required double linearY,
+    required double angularZ,
+  }) {
+    final ax = linearX.abs();
+    final ay = linearY.abs();
+    final az = angularZ.abs();
+    if (ax < 0.001 && ay < 0.001 && az < 0.001) {
+      return _CarDirection.stop;
+    }
+    if (az >= ax && az >= ay) {
+      return angularZ > 0
+          ? _CarDirection.leftRotate
+          : _CarDirection.rightRotate;
+    }
+    if (ax >= ay) {
+      return linearX > 0 ? _CarDirection.front : _CarDirection.after;
+    }
+    return linearY > 0 ? _CarDirection.left : _CarDirection.right;
   }
 
   void _dropSocket() {
@@ -347,6 +466,7 @@ class CloudRepository extends TcpCarRepository {
   String cameraSnapshotUrl({
     String topicName = '/image_raw',
     int? cacheBust,
+    String? baseUrl,
   }) {
     return _uri(
       '/api/inspection/camera/snapshot',
@@ -355,6 +475,7 @@ class CloudRepository extends TcpCarRepository {
         'timeout_sec': '3.0',
         if (cacheBust != null) 't': cacheBust.toString(),
       },
+      baseUrl: baseUrl,
     ).toString();
   }
 
@@ -362,6 +483,7 @@ class CloudRepository extends TcpCarRepository {
   String cameraMjpegUrl({
     String topicName = '/image_raw',
     double fps = 5.0,
+    String? baseUrl,
   }) {
     return _uri(
       '/api/inspection/camera/mjpeg',
@@ -370,6 +492,7 @@ class CloudRepository extends TcpCarRepository {
         'fps': fps.toStringAsFixed(1),
         'timeout_sec': '3.0',
       },
+      baseUrl: baseUrl,
     ).toString();
   }
 
@@ -408,9 +531,13 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
-  Future<InspectionMonitorStatus> getInspectionMonitorStatus() async {
-    final json = await _getJson('/api/inspection/monitor/status')
-        as Map<String, dynamic>;
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus({
+    String? baseUrl,
+  }) async {
+    final json = await _getJson(
+      '/api/inspection/monitor/status',
+      baseUrl: baseUrl,
+    ) as Map<String, dynamic>;
     return _monitorFromJson(json);
   }
 
@@ -474,23 +601,36 @@ class CloudRepository extends TcpCarRepository {
   }
 
   @override
-  Future<InspectionMonitorStatus> startInspectionMonitor() async {
-    final json = await _postJson('/api/inspection/monitor/start', {
-      'topic_name': '/image_raw',
-      'interval_sec': 1.0,
-      'timeout_sec': 10.0,
-      'robot_code': 'robot_001',
-      'camera_code': 'usb_cam',
-      'enabled_models': ['crack', 'puddle', 'fod'],
-    }) as Map<String, dynamic>;
+  Future<InspectionMonitorStatus> startInspectionMonitor({
+    String topicName = '/image_raw',
+    String robotCode = 'robot_001',
+    String cameraCode = 'usb_cam',
+    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    String? baseUrl,
+  }) async {
+    final json = await _postJson(
+        '/api/inspection/monitor/start',
+        {
+          'topic_name': topicName,
+          'interval_sec': 1.0,
+          'timeout_sec': 10.0,
+          'robot_code': robotCode,
+          'camera_code': cameraCode,
+          'enabled_models': enabledModels,
+        },
+        baseUrl: baseUrl) as Map<String, dynamic>;
     return _monitorFromJson(json);
   }
 
   @override
-  Future<InspectionMonitorStatus> stopInspectionMonitor() async {
-    final json =
-        await _postJson('/api/inspection/monitor/stop', <String, Object?>{})
-            as Map<String, dynamic>;
+  Future<InspectionMonitorStatus> stopInspectionMonitor({
+    String? baseUrl,
+  }) async {
+    final json = await _postJson(
+      '/api/inspection/monitor/stop',
+      <String, Object?>{},
+      baseUrl: baseUrl,
+    ) as Map<String, dynamic>;
     return _monitorFromJson(json);
   }
 
@@ -573,6 +713,45 @@ class CloudRepository extends TcpCarRepository {
       'yaw': goal.yaw,
       'frame_id': 'map',
     });
+  }
+
+  @override
+  Future<void> sendFleetForward({
+    required List<String> robotCodes,
+    double speedMps = 0.12,
+    double durationSeconds = 5.0,
+  }) async {
+    await sendFleetVelocity(
+      robotCodes: robotCodes,
+      linearX: speedMps,
+      linearY: 0.0,
+      angularZ: 0.0,
+      durationSeconds: durationSeconds,
+    );
+  }
+
+  @override
+  Future<void> sendFleetVelocity({
+    required List<String> robotCodes,
+    required double linearX,
+    required double linearY,
+    required double angularZ,
+    double durationSeconds = 0.35,
+    double rateHz = 10.0,
+  }) async {
+    await super.sendFleetVelocity(
+      robotCodes: robotCodes,
+      linearX: linearX,
+      linearY: linearY,
+      angularZ: angularZ,
+      durationSeconds: durationSeconds,
+      rateHz: rateHz,
+    );
+  }
+
+  @override
+  Future<void> stopFleetRobots({required List<String> robotCodes}) async {
+    await super.stopFleetRobots(robotCodes: robotCodes);
   }
 
   @override
@@ -851,6 +1030,7 @@ class MockRepository implements Repository {
   String cameraSnapshotUrl({
     String topicName = '/image_raw',
     int? cacheBust,
+    String? baseUrl,
   }) {
     final seed = cacheBust ?? DateTime.now().millisecondsSinceEpoch;
     return 'https://placehold.co/640x360/png?text=Camera+$seed';
@@ -860,6 +1040,7 @@ class MockRepository implements Repository {
   String cameraMjpegUrl({
     String topicName = '/image_raw',
     double fps = 5.0,
+    String? baseUrl,
   }) {
     return cameraSnapshotUrl(topicName: topicName);
   }
@@ -941,18 +1122,28 @@ class MockRepository implements Repository {
   }
 
   @override
-  Future<InspectionMonitorStatus> getInspectionMonitorStatus() async {
+  Future<InspectionMonitorStatus> getInspectionMonitorStatus({
+    String? baseUrl,
+  }) async {
     return _delay(_mockMonitorStatus());
   }
 
   @override
-  Future<InspectionMonitorStatus> startInspectionMonitor() async {
+  Future<InspectionMonitorStatus> startInspectionMonitor({
+    String topicName = '/image_raw',
+    String robotCode = 'robot_001',
+    String cameraCode = 'usb_cam',
+    List<String> enabledModels = const ['crack', 'puddle', 'fod'],
+    String? baseUrl,
+  }) async {
     _monitorRunning = true;
     return _delay(_mockMonitorStatus());
   }
 
   @override
-  Future<InspectionMonitorStatus> stopInspectionMonitor() async {
+  Future<InspectionMonitorStatus> stopInspectionMonitor({
+    String? baseUrl,
+  }) async {
     _monitorRunning = false;
     return _delay(_mockMonitorStatus());
   }
@@ -1117,6 +1308,41 @@ class MockRepository implements Repository {
     required String robotId,
     required RobotMode mode,
   }) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> sendFleetForward({
+    required List<String> robotCodes,
+    double speedMps = 0.12,
+    double durationSeconds = 5.0,
+  }) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> sendFleetVelocity({
+    required List<String> robotCodes,
+    required double linearX,
+    required double linearY,
+    required double angularZ,
+    double durationSeconds = 0.35,
+    double rateHz = 10.0,
+  }) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> sendFleetVectorMotion({
+    required List<String> robotCodes,
+    required double x,
+    required double y,
+  }) async {
+    await _delay(null);
+  }
+
+  @override
+  Future<void> stopFleetRobots({required List<String> robotCodes}) async {
     await _delay(null);
   }
 

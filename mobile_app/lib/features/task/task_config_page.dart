@@ -82,30 +82,6 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('定时巡检（占位）', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    const _KvRow(k: '巡检时段', v: '22:00 - 06:00'),
-                    const _KvRow(k: '循环次数', v: '3'),
-                    const _KvRow(k: '视觉检测', v: '开启'),
-                    const SizedBox(height: 8),
-                    FilledButton.tonalIcon(
-                      onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(
-                              const SnackBar(content: Text('定时巡检配置（待后端接口）'))),
-                      icon: const Icon(Icons.schedule),
-                      label: const Text('编辑定时配置'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
             FutureBuilder<List<Waypoint>>(
               future: _waypointsFuture,
               builder: (context, snapshot) {
@@ -234,28 +210,6 @@ class _TaskConfigPageState extends State<TaskConfigPage> {
                   },
                 );
               },
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('视觉模型参数（占位）', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 10),
-                    const Text('远程开关检测、调整置信阈值：待后端网关与 MQTT 指令协议'),
-                    const SizedBox(height: 10),
-                    FilledButton.tonalIcon(
-                      onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(
-                              const SnackBar(content: Text('模型参数配置（待后端接口）'))),
-                      icon: const Icon(Icons.tune),
-                      label: const Text('配置参数'),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -477,30 +431,6 @@ class _RouteDialogState extends State<_RouteDialog> {
           child: const Text('保存'),
         ),
       ],
-    );
-  }
-}
-
-class _KvRow extends StatelessWidget {
-  final String k;
-  final String v;
-
-  const _KvRow({required this.k, required this.v});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(k, style: theme.textTheme.bodyMedium),
-          Text(v,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-        ],
-      ),
     );
   }
 }

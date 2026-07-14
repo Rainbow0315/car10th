@@ -493,6 +493,107 @@ robot_002 formation_role=follower formation_slot=1
 
 注意：阶段 4 当前的 `set_formation` 只让 `robot_agent` 更新编队状态并 ACK，适合演示“多车任务编排已打通”。如果下一阶段要进入真实跟随或队形运动，需要在 `robot_agent` 内把 formation payload 转成 ROS 控制或导航目标，并增加急停、速度上限、间距保护和人工接管。
 
+## 阶段 5：受控真实运动验证
+
+阶段 5 目标是把多车协同从“只更新状态并 ACK”推进到“车端真实发布 `/cmd_vel`”。最短安全闭环是：先确认 MQTT 和 agent 在线，再确认目标车 `ros_bridge` 可用且 `/cmd_vel` 有底盘订阅者，然后下发一次 safety stop，最后在人工确认场地安全后执行一次短时低速 `corridor_crawl`。
+
+如果 Docker Desktop / Mosquitto 没起来，可以先用临时 Python broker 顶上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_dev_mqtt_broker_windows.ps1
+```
+
+然后用跳过 Docker 的方式启动 Windows fleet 后端：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_fleet_backend_windows.ps1 `
+  -SkipDocker `
+  -MqttHost 127.0.0.1 `
+  -MqttClientId parking_backend_windows_stage5 `
+  -RosBridgeHttpUrl http://192.168.137.89:8001
+```
+
+运动前预检，不会前进，只会下发 stop：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test_fleet_stage5_controlled_motion.ps1
+```
+
+脚本会检查：
+
+- Windows 后端 `/health` 为 `ok` 且 `mqtt_connected=true`
+- 目标车 `robot_001` 为 `online`
+- 目标车 `ros_bridge` 为 `ok`
+- `ros_bridge` 的 `cmd_vel_topic=/cmd_vel`
+- `/cmd_vel` 的 `subscriber_count >= 1`
+- 后端向 `/api/fleet/safety/stop` 下发 stop
+- 车端 agent ACK，且 `dry_run=false`
+
+2026-07-13 预检实测通过：
+
+```text
+TargetRobot: robot_001
+TargetRosBridgeUrl: http://192.168.137.239:8001
+Motion: linear_x=0.12 m/s, duration=1.5 s, armed=False
+Preflight OK: ros_bridge subscriber_count=1
+Safety stop ACKed: command_id=207fc6441e38485786a894ded506092e, dry_run=False, detail=stop command sent to ROS bridge
+PASS: preflight and safety stop succeeded. Add -ArmMotion to execute the short low-speed movement.
+```
+
+确认小车在地面空旷区域或架空测试台后，再执行真实短时低速运动：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test_fleet_stage5_controlled_motion.ps1 -ArmMotion
+```
+
+注意：`corridor_crawl` 的 ACK 只表示 `robot_agent -> ros_bridge` 已接受命令。`ros_bridge` 的 timed `/cmd_vel` 是后台发布，所以测试脚本不能在 ACK 后立刻 stop，否则会提前截断动作。当前脚本会等待 `duration + 0.5s` 后再下发最终 safety stop。
+
+2026-07-13 真实短时运动实测通过，现场观察 `robot_001` 已短距离前进：
+
+```text
+TargetRobot: robot_001
+TargetRosBridgeUrl: http://192.168.137.239:8001
+Motion: linear_x=0.12 m/s, duration=1.5 s, armed=True
+Preflight OK: ros_bridge subscriber_count=1
+Safety stop ACKed: command_id=10a95eda6eca45a28e666826cd05a89f, dry_run=False, detail=stop command sent to ROS bridge
+Motion ACKed: command_id=34353dfccbff4a02b63f389be2acc354, dry_run=False, detail=corridor crawl motion accepted
+Holding motion window for 2s before final safety stop...
+Final safety stop ACKed: command_id=25d94b3a7c9645e399c6aef888bf3f8a, dry_run=False, detail=stop command sent to ROS bridge
+PASS: controlled motion command completed and final stop was ACKed.
+```
+
+后置确认：
+
+```text
+robot_001 status=online mode=idle
+total_robots=2
+online_robots=2
+total_commands=7
+acked_commands=7
+failed_commands=0
+timeout_commands=0
+```
+
+默认运动参数非常保守：
+
+- `linear_x=0.12 m/s`
+- `duration=1.5 s`
+- 理论位移约 `0.18 m`
+- 动作完成后脚本会再次下发 safety stop
+
+如果要改目标车或速度，仍建议保持在低速短时：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test_fleet_stage5_controlled_motion.ps1 `
+  -TargetRobot robot_001 `
+  -TargetRosBridgeUrl http://192.168.137.239:8001 `
+  -LinearX 0.12 `
+  -DurationSec 1.5 `
+  -ArmMotion
+```
+
+注意：车2当前 `robot_agent` 仍以 `--dry-run` 启动，适合验证通信但不会驱动车轮。要让车2真实运动，需要先把车2 agent 改为非 dry-run，再重复阶段 5 预检。不要同时让两台车真实运动，先完成单车闭环，再做错峰双车慢行。
+
 ## 当前不建议直接复制车1 Docker 的原因
 
 车1当前 `ros_x3_fixed` 使用自定义镜像：

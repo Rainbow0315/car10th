@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../app/app_settings.dart';
 import '../../data/models.dart';
 import '../../data/repository.dart';
 
@@ -13,7 +14,7 @@ class CameraYoloCard extends StatefulWidget {
 
   const CameraYoloCard({
     super.key,
-    this.title = 'Camera and YOLO',
+    this.title = '监测监控',
   });
 
   @override
@@ -21,43 +22,87 @@ class CameraYoloCard extends StatefulWidget {
 }
 
 class _CameraYoloCardState extends State<CameraYoloCard> {
+  static const _cameraCode = 'usb_cam';
+  static const _cameraTopic = '/image_raw';
+
   bool _previewRunning = false;
   Future<InspectionMonitorStatus>? _monitorFuture;
   bool _monitorBusy = false;
   bool _loaded = false;
+  String _robotCode = 'robot_002';
+  int _previewSession = 0;
 
   Repository get _repo => context.read<Repository>();
+  AppSettings get _settings => context.read<AppSettings>();
+
+  RobotControlTarget get _target {
+    return _settings.controlTargets.firstWhere(
+      (target) => target.code == _robotCode,
+      orElse: () => _settings.controlTargets.first,
+    );
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_loaded) return;
     _loaded = true;
-    _monitorFuture = _repo.getInspectionMonitorStatus();
+    final settings = context.read<AppSettings>();
+    _robotCode = settings.controlTargets.any(
+      (target) => target.code == _robotCode,
+    )
+        ? _robotCode
+        : settings.selectedControlTarget.code;
+    _monitorFuture = _repo.getInspectionMonitorStatus(
+      baseUrl: _target.apiBaseUrl,
+    );
   }
 
   void _togglePreview() {
-    setState(() => _previewRunning = !_previewRunning);
+    setState(() {
+      _previewRunning = !_previewRunning;
+      if (_previewRunning) _previewSession++;
+    });
   }
 
   void _refreshMonitorStatus() {
-    setState(() => _monitorFuture = _repo.getInspectionMonitorStatus());
+    setState(() {
+      _monitorFuture = _repo.getInspectionMonitorStatus(
+        baseUrl: _target.apiBaseUrl,
+      );
+    });
+  }
+
+  void _selectRobot(String robotCode) {
+    if (_robotCode == robotCode) return;
+    setState(() {
+      _robotCode = robotCode;
+      _previewRunning = false;
+      _monitorFuture = _repo.getInspectionMonitorStatus(
+        baseUrl: _target.apiBaseUrl,
+      );
+    });
   }
 
   Future<void> _setMonitorRunning(bool running) async {
     setState(() => _monitorBusy = true);
     try {
       final status = running
-          ? await _repo.startInspectionMonitor()
-          : await _repo.stopInspectionMonitor();
+          ? await _repo.startInspectionMonitor(
+              topicName: _cameraTopic,
+              robotCode: _target.code,
+              cameraCode: _cameraCode,
+              baseUrl: _target.apiBaseUrl,
+            )
+          : await _repo.stopInspectionMonitor(baseUrl: _target.apiBaseUrl);
       if (!mounted) return;
       setState(() => _monitorFuture = Future.value(status));
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('YOLO monitor operation failed: $e'),
-          duration: const Duration(seconds: 4),
+        const SnackBar(
+          content: Text('检测操作失败'),
+          duration: Duration(seconds: 3),
         ),
       );
     } finally {
@@ -69,9 +114,21 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final streamUrl = _repo.cameraMjpegUrl(fps: 5.0);
+    final settings = context.watch<AppSettings>();
+    final targets = settings.controlTargets;
+    final selected = targets.firstWhere(
+      (target) => target.code == _robotCode,
+      orElse: () => targets.first,
+    );
+    final streamUrl = _repo.cameraMjpegUrl(
+      topicName: _cameraTopic,
+      fps: 5.0,
+      baseUrl: selected.apiBaseUrl,
+    );
     final snapshotUrl = _repo.cameraSnapshotUrl(
+      topicName: _cameraTopic,
       cacheBust: DateTime.now().millisecondsSinceEpoch,
+      baseUrl: selected.apiBaseUrl,
     );
 
     return Card(
@@ -88,9 +145,41 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
                   child: Text(widget.title, style: theme.textTheme.titleMedium),
                 ),
                 IconButton(
-                  tooltip: 'Refresh YOLO status',
+                  tooltip: '刷新',
                   onPressed: _refreshMonitorStatus,
                   icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('monitor-robot-${selected.code}'),
+                    initialValue: selected.code,
+                    isDense: true,
+                    decoration: const InputDecoration(
+                      labelText: '小车',
+                      prefixIcon: Icon(Icons.directions_car_outlined),
+                    ),
+                    items: [
+                      for (final target in targets)
+                        DropdownMenuItem(
+                          value: target.code,
+                          child: Text(target.label),
+                        ),
+                    ],
+                    onChanged: _monitorBusy
+                        ? null
+                        : (value) {
+                            if (value != null) _selectRobot(value);
+                          },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Chip(
+                  avatar: Icon(Icons.videocam_outlined),
+                  label: Text('USB'),
                 ),
               ],
             ),
@@ -106,14 +195,16 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
                   ),
                   child: _previewRunning
                       ? _MjpegStreamView(
+                          key: ValueKey(
+                            '${selected.code}-$_cameraCode-$_previewSession',
+                          ),
                           url: streamUrl,
                           fallbackSnapshotUrl: snapshotUrl,
                           fit: BoxFit.cover,
                         )
                       : const _CameraPlaceholder(
                           icon: Icons.videocam_outlined,
-                          text: 'MJPEG stream stopped',
-                          detail: 'Tap below to stream /image_raw',
+                          text: '预览已停止',
                         ),
                 ),
               ),
@@ -131,9 +222,7 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
                         ? Icons.videocam_off_outlined
                         : Icons.videocam_outlined,
                   ),
-                  label: Text(
-                    _previewRunning ? 'Stop preview' : 'Start preview',
-                  ),
+                  label: Text(_previewRunning ? '停止预览' : '开始预览'),
                 ),
                 FutureBuilder<InspectionMonitorStatus>(
                   future: _monitorFuture,
@@ -149,7 +238,7 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
                             ? Icons.pause_circle_outline
                             : Icons.play_circle_outline,
                       ),
-                      label: Text(running ? 'Stop YOLO' : 'Start YOLO'),
+                      label: Text(running ? '停止检测' : '开始检测'),
                     );
                   },
                 ),
@@ -161,7 +250,7 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Text(
-                    'YOLO status failed: ${snapshot.error}',
+                    '状态读取失败',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colors.error,
                     ),
@@ -169,23 +258,15 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
                 }
                 final status = snapshot.data;
                 if (status == null) {
-                  return Text(
-                    'Loading YOLO status',
-                    style: theme.textTheme.bodySmall,
-                  );
+                  return Text('正在读取状态', style: theme.textTheme.bodySmall);
                 }
                 return Column(
                   children: [
-                    _KvRow(
-                      k: 'YOLO',
-                      v: status.running ? 'Running' : 'Stopped',
-                    ),
-                    _KvRow(k: 'Topic', v: status.topicName),
-                    _KvRow(k: 'Frames', v: '${status.totalFrames}'),
-                    _KvRow(
-                        k: 'Last check', v: _formatTime(status.lastCheckedAt)),
+                    _KvRow(k: '检测', v: status.running ? '运行中' : '已停止'),
+                    _KvRow(k: '帧数', v: '${status.totalFrames}'),
+                    _KvRow(k: '最近', v: _formatTime(status.lastCheckedAt)),
                     if (status.lastError?.isNotEmpty == true)
-                      _KvRow(k: 'Error', v: status.lastError!),
+                      _KvRow(k: '错误', v: status.lastError!),
                   ],
                 );
               },
@@ -207,12 +288,10 @@ class _CameraYoloCardState extends State<CameraYoloCard> {
 class _CameraPlaceholder extends StatelessWidget {
   final IconData icon;
   final String text;
-  final String detail;
 
   const _CameraPlaceholder({
     required this.icon,
     required this.text,
-    required this.detail,
   });
 
   @override
@@ -228,14 +307,6 @@ class _CameraPlaceholder extends StatelessWidget {
             Icon(icon, size: 34, color: colors.onSurfaceVariant),
             const SizedBox(height: 8),
             Text(text, style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              detail,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
           ],
         ),
       ),
@@ -249,6 +320,7 @@ class _MjpegStreamView extends StatefulWidget {
   final BoxFit fit;
 
   const _MjpegStreamView({
+    super.key,
     required this.url,
     required this.fallbackSnapshotUrl,
     required this.fit,
@@ -316,7 +388,7 @@ class _MjpegStreamViewState extends State<_MjpegStreamView> {
         },
         onDone: () {
           if (mounted && _error == null) {
-            _markError('MJPEG stream closed');
+            _markError('连接已关闭');
           }
         },
         cancelOnError: true,
@@ -420,10 +492,9 @@ class _MjpegStreamViewState extends State<_MjpegStreamView> {
             fit: widget.fit,
             gaplessPlayback: true,
             errorBuilder: (context, error, stackTrace) {
-              return _CameraPlaceholder(
+              return const _CameraPlaceholder(
                 icon: Icons.videocam_off_outlined,
-                text: 'MJPEG and snapshot failed',
-                detail: _shortError('MJPEG: $_error; snapshot: $error'),
+                text: '预览不可用',
               );
             },
             loadingBuilder: (context, child, progress) => child,
@@ -438,7 +509,7 @@ class _MjpegStreamViewState extends State<_MjpegStreamView> {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'MJPEG failed, fallback snapshot\n${_shortError(_error!)}',
+                _shortError(_error!),
                 style: const TextStyle(color: Colors.white, fontSize: 11),
               ),
             ),

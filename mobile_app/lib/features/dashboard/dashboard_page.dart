@@ -7,7 +7,6 @@ import '../../data/repository.dart';
 import '../alarm/alarm_labels.dart';
 import '../chat/chat_page.dart';
 import '../control/control_page.dart';
-import '../history/history_page.dart';
 import '../inspection/camera_yolo_card.dart';
 import '../task/task_config_page.dart';
 
@@ -82,12 +81,6 @@ class _DashboardPageState extends State<DashboardPage> {
         icon: Icons.route_outlined,
         enabled: session.canTaskConfig(),
         onTap: () => _push(const TaskConfigPage()),
-      ),
-      _QuickAction(
-        label: '历史回放',
-        icon: Icons.history,
-        enabled: true,
-        onTap: () => _push(const HistoryPage()),
       ),
       _QuickAction(
         label: 'LLM 对话',
