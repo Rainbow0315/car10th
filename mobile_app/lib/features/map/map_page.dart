@@ -180,7 +180,7 @@ class _MapPageState extends State<MapPage> {
             ),
           )
           .toList(growable: false);
-      await context.read<Repository>().createPatrolTask(
+      final task = await context.read<Repository>().createPatrolTask(
             name: draft.name,
             robotCode: robotCode,
             waypoints: waypoints,
@@ -191,12 +191,45 @@ class _MapPageState extends State<MapPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('已保存巡航任务：${draft.name}')),
       );
+      setState(() => _savingPatrol = false);
+      final startNow = await _confirmStartPatrolNow(task.name);
+      if (!mounted || startNow != true) return;
+      setState(() {
+        _savingPatrol = true;
+        _error = null;
+      });
+      await context.read<Repository>().startPatrolTask(task.taskCode);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已开始巡航：${task.name}')),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _savingPatrol = false);
     }
+  }
+
+  Future<bool?> _confirmStartPatrolNow(String taskName) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('现在巡航一次吗？'),
+        content: Text('“$taskName”已经保存好了，要现在让小车按这条路线巡航一遍吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('先不跑'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('现在巡航'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -305,7 +338,7 @@ class _MapPageState extends State<MapPage> {
                               painter: _SlamMapPainter(
                                 map: map,
                                 initialPose: _initialPose,
-                                goal: _goal,
+                                goal: patrolEditing ? null : _goal,
                                 patrolWaypoints: List<MapPoint>.unmodifiable(
                                     _patrolWaypoints),
                                 calibrated: _calibrated,
@@ -639,22 +672,20 @@ class _PatrolSaveDialog extends StatefulWidget {
 
 class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
   late final TextEditingController _name;
-  late final TextEditingController _loopCount;
-  late final TextEditingController _scheduleCron;
+  late final TextEditingController _intervalMinutes;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.defaultName);
-    _loopCount = TextEditingController(text: '1');
-    _scheduleCron = TextEditingController();
+    _intervalMinutes = TextEditingController(text: '30');
   }
 
   @override
   void dispose() {
     _name.dispose();
-    _loopCount.dispose();
-    _scheduleCron.dispose();
+    _intervalMinutes.dispose();
     super.dispose();
   }
 
@@ -667,21 +698,27 @@ class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
         children: [
           TextField(
             controller: _name,
-            decoration: const InputDecoration(labelText: '任务名称'),
-          ),
-          TextField(
-            controller: _loopCount,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '循环次数'),
+            decoration: const InputDecoration(labelText: '名称'),
           ),
           if (widget.scheduled)
             TextField(
-              controller: _scheduleCron,
+              controller: _intervalMinutes,
+              keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: '定时 cron',
-                hintText: '0 22 * * *',
+                labelText: '每隔多少分钟巡航一次',
+                suffixText: '分钟',
               ),
             ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          ],
         ],
       ),
       actions: [
@@ -692,14 +729,24 @@ class _PatrolSaveDialogState extends State<_PatrolSaveDialog> {
         FilledButton(
           onPressed: () {
             final name = _name.text.trim();
-            final loopCount = int.tryParse(_loopCount.text.trim()) ?? 1;
-            final cron = _scheduleCron.text.trim();
-            if (name.isEmpty || loopCount <= 0) return;
+            if (name.isEmpty) {
+              setState(() => _error = '先填一个名称');
+              return;
+            }
+            String? scheduleCron;
+            if (widget.scheduled) {
+              final minutes = int.tryParse(_intervalMinutes.text.trim());
+              if (minutes == null || minutes < 1 || minutes > 59) {
+                setState(() => _error = '间隔分钟填 1 到 59 之间的数字');
+                return;
+              }
+              scheduleCron = '*/$minutes * * * *';
+            }
             Navigator.of(context).pop(
               _PatrolSaveDraft(
                 name: name,
-                loopCount: loopCount,
-                scheduleCron: cron.isEmpty ? null : cron,
+                loopCount: 1,
+                scheduleCron: scheduleCron,
               ),
             );
           },
