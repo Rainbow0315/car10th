@@ -65,13 +65,13 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('后端接口', style: theme.textTheme.titleSmall),
+                  Text('服务地址', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _apiBaseUrl,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
-                      labelText: '接口地址',
+                      labelText: '服务地址',
                       hintText: 'http://192.168.137.239:8000',
                       border: OutlineInputBorder(),
                     ),
@@ -83,19 +83,19 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('已保存接口地址：${settings.apiBaseUrl}'),
+                          content: Text('已保存服务地址：${settings.apiBaseUrl}'),
                         ),
                       );
                     },
                     icon: const Icon(Icons.cloud_sync_outlined),
-                    label: const Text('保存接口地址'),
+                    label: const Text('保存服务地址'),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _llmApiBaseUrl,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
-                      labelText: 'LLM 网关地址',
+                      labelText: 'LLM 服务地址',
                       hintText: 'http://192.168.137.51:8000',
                       border: OutlineInputBorder(),
                     ),
@@ -108,20 +108,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            '已保存 LLM 网关地址：${settings.llmApiBaseUrl}',
+                            '已保存 LLM 服务地址：${settings.llmApiBaseUrl}',
                           ),
                         ),
                       );
                     },
                     icon: const Icon(Icons.smart_toy_outlined),
-                    label: const Text('保存 LLM 网关地址'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '助手页面只会使用 LLM 网关地址；地图、巡检、车队等接口仍使用上面的后端接口地址。',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                    label: const Text('保存 LLM 服务地址'),
                   ),
                 ],
               ),
@@ -173,13 +166,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     },
                     icon: const Icon(Icons.save_outlined),
                     label: const Text('保存 TCP 配置'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '控制页会直接向这个地址发送 Yahboom TCP 私有协议。',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
                   ),
                 ],
               ),

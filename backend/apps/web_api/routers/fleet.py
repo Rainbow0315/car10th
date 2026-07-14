@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 
 from apps.web_api.services.fleet_service import fleet_service
@@ -41,9 +45,17 @@ from common.schemas.fleet import (
     FleetSafetyStopRequest,
     FleetSafetyStopResponse,
     FleetSummaryResponse,
+    FleetTeleopCommandRequest,
+    FleetTeleopResponse,
+    FleetTeleopStopRequest,
 )
 
 router = APIRouter()
+
+DEFAULT_ROS_BRIDGE_BY_ROBOT = {
+    "robot_001": "http://192.168.137.239:8001",
+    "robot_002": "http://192.168.137.89:8001",
+}
 
 
 @router.get("/summary", response_model=FleetSummaryResponse, summary="Get fleet summary")
@@ -115,6 +127,68 @@ def send_batch_fleet_command(request: FleetBatchCommandRequest):
         for robot_code in robot_codes
     ]
     return FleetBatchCommandResponse(commands=commands)
+
+
+@router.post(
+    "/teleop/cmd-vel",
+    response_model=FleetTeleopResponse,
+    summary="Send /cmd_vel to multiple robot ROS bridges concurrently",
+)
+def send_fleet_teleop_cmd_vel(request: FleetTeleopCommandRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
+    payload = {
+        "linear_x": request.linear_x,
+        "linear_y": request.linear_y,
+        "angular_z": request.angular_z,
+        "duration": request.duration,
+        "rate_hz": request.rate_hz,
+        "wait_for_subscriber_timeout": request.wait_for_subscriber_timeout,
+    }
+    members = _call_ros_bridges_concurrently(
+        robot_codes,
+        path="/api/teleop/cmd-vel",
+        payload=payload,
+        timeout_sec=max(5.0, request.duration + 3.0),
+    )
+    return FleetTeleopResponse(
+        target_robots=robot_codes,
+        all_ok=all(item["ok"] for item in members),
+        command="cmd_vel",
+        members=members,
+    )
+
+
+@router.post(
+    "/teleop/stop",
+    response_model=FleetTeleopResponse,
+    summary="Stop multiple robot ROS bridges concurrently",
+)
+def stop_fleet_teleop(request: FleetTeleopStopRequest):
+    robot_codes = _unique_robot_codes(request.robot_codes)
+    if not robot_codes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="robot_codes must contain at least one non-empty robot code",
+        )
+    _ensure_fleet_ready(robot_codes, request.require_all_ready)
+    members = _call_ros_bridges_concurrently(
+        robot_codes,
+        path="/api/teleop/stop",
+        payload=None,
+        timeout_sec=5.0,
+    )
+    return FleetTeleopResponse(
+        target_robots=robot_codes,
+        all_ok=all(item["ok"] for item in members),
+        command="stop",
+        members=members,
+    )
 
 
 @router.post(
@@ -721,6 +795,87 @@ def _publish_fleet_command(
         error=None if published else mqtt_manager.last_error,
     )
     return command
+
+
+def _robot_ros_bridge_url(robot_code: str) -> str:
+    robot = fleet_service.get_robot(robot_code)
+    agent_ip = str(robot.get("agent_ip") or "").strip()
+    if not agent_ip:
+        fallback = DEFAULT_ROS_BRIDGE_BY_ROBOT.get(robot_code)
+        if fallback:
+            return fallback
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{robot_code} has no agent_ip in fleet status",
+        )
+    return f"http://{agent_ip}:8001"
+
+
+def _call_ros_bridge(
+    robot_code: str,
+    path: str,
+    payload: dict[str, Any] | None,
+    timeout_sec: float,
+) -> dict[str, Any]:
+    base_url = _robot_ros_bridge_url(robot_code).rstrip("/")
+    url = f"{base_url}{path}"
+    started = time.perf_counter()
+    try:
+        with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=2.0)) as client:
+            response = client.post(url, json=payload)
+    except httpx.RequestError as exc:
+        return {
+            "robot_code": robot_code,
+            "ros_bridge_url": base_url,
+            "ok": False,
+            "status_code": None,
+            "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+            "response": None,
+            "error": str(exc),
+        }
+
+    try:
+        body: Any = response.json()
+    except ValueError:
+        body = {"raw": response.text}
+    return {
+        "robot_code": robot_code,
+        "ros_bridge_url": base_url,
+        "ok": response.is_success,
+        "status_code": response.status_code,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+        "response": body if isinstance(body, dict) else {"value": body},
+        "error": None if response.is_success else response.text,
+    }
+
+
+def _call_ros_bridges_concurrently(
+    robot_codes: list[str],
+    path: str,
+    payload: dict[str, Any] | None,
+    timeout_sec: float,
+) -> list[dict[str, Any]]:
+    results_by_robot: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=max(1, len(robot_codes))) as executor:
+        futures = {
+            executor.submit(_call_ros_bridge, robot_code, path, payload, timeout_sec): robot_code
+            for robot_code in robot_codes
+        }
+        for future in as_completed(futures):
+            robot_code = futures[future]
+            try:
+                results_by_robot[robot_code] = future.result()
+            except Exception as exc:  # pragma: no cover - defensive guard for unexpected failures
+                results_by_robot[robot_code] = {
+                    "robot_code": robot_code,
+                    "ros_bridge_url": "",
+                    "ok": False,
+                    "status_code": None,
+                    "elapsed_ms": 0.0,
+                    "response": None,
+                    "error": str(exc),
+                }
+    return [results_by_robot[robot_code] for robot_code in robot_codes]
 
 
 @router.get(
