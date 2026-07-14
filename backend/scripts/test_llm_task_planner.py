@@ -103,8 +103,39 @@ async def run_tests() -> None:
     sys.path.insert(0, str(repo_backend))
     install_lightweight_stubs()
 
+    import apps.web_api.services.llm_task_service as llm_task_module
     from apps.web_api.services.llm_task_service import LlmTaskService
     from common.schemas.llm import LlmTaskExecuteRequest, LlmTaskPlanRequest
+
+    def fake_send_cmd_vel_to_ros_bridges(robot_codes, **kwargs):
+        duration = float(kwargs["duration"])
+        effective_duration = duration + 0.35 if len(robot_codes) > 1 and duration >= 1.0 else duration
+        rate_hz = float(kwargs["rate_hz"])
+        effective_rate_hz = max(rate_hz, 15.0) if len(robot_codes) > 1 and duration >= 1.0 else rate_hz
+        return {
+            "target_robots": robot_codes,
+            "all_ok": True,
+            "command": "cmd_vel",
+            "requested_duration": duration,
+            "effective_duration": effective_duration,
+            "duration_compensation": effective_duration - duration,
+            "requested_rate_hz": rate_hz,
+            "effective_rate_hz": effective_rate_hz,
+            "members": [
+                {
+                    "robot_code": robot_code,
+                    "ros_bridge_url": f"http://{robot_code}.test:8001",
+                    "ok": True,
+                    "status_code": 200,
+                    "elapsed_ms": 1.0,
+                    "response": {"status": "accepted"},
+                    "error": None,
+                }
+                for robot_code in robot_codes
+            ],
+        }
+
+    llm_task_module.send_cmd_vel_to_ros_bridges = fake_send_cmd_vel_to_ros_bridges
 
     service = LlmTaskService()
     cases = [
@@ -293,8 +324,9 @@ async def run_tests() -> None:
         service._ensure_ready = original_ensure_ready  # type: ignore[method-assign]
     assert len(two_robot_result["commands"]) == 2
     assert [command["robot_code"] for command in two_robot_result["commands"]] == ["robot_001", "robot_002"]
-    assert all(command["command"] == "llm_motion" for command in two_robot_result["commands"])
-    assert all(command["status"] == "published" for command in two_robot_result["commands"])
+    assert all(command["command"] == "cmd_vel" for command in two_robot_result["commands"])
+    assert two_robot_result["teleop"]["requested_duration"] == 2.0
+    assert two_robot_result["teleop"]["effective_duration"] >= 2.0
 
     from apps.web_api.routers import llm as llm_router
 

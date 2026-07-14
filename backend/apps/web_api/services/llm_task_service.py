@@ -14,6 +14,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from apps.web_api.services.fleet_service import fleet_service
+from apps.web_api.services.fleet_teleop_service import send_cmd_vel_to_ros_bridges
 from common.config.settings import settings
 from common.mqtt import fleet_command_topic, mqtt_manager
 from common.schemas.fleet import FleetReadinessResponse
@@ -174,6 +175,12 @@ class LlmTaskService:
                 30.0,
             )
             motion["duration"] = duration
+            if len(robot_codes) > 1:
+                return self._execute_multi_robot_motion(
+                    robot_codes=robot_codes,
+                    action=action,
+                    motion=motion,
+                )
             commands = [
                 self._publish_command(
                     robot_code,
@@ -887,6 +894,55 @@ class LlmTaskService:
         if motion is None:
             raise ValueError(f"Unsupported LLM motion action: {action}")
         return dict(motion)
+
+    def _execute_multi_robot_motion(
+        self,
+        *,
+        robot_codes: list[str],
+        action: str,
+        motion: Dict[str, float],
+    ) -> Dict[str, Any]:
+        result = send_cmd_vel_to_ros_bridges(
+            robot_codes,
+            linear_x=motion["linear_x"],
+            linear_y=motion["linear_y"],
+            angular_z=motion["angular_z"],
+            duration=motion["duration"],
+            rate_hz=motion["rate_hz"],
+            wait_for_subscriber_timeout=1.0,
+        )
+        commands = [
+            {
+                "robot_code": member["robot_code"],
+                "command": "cmd_vel",
+                "action": action,
+                "status": "accepted" if member["ok"] else "failed",
+                "payload": {
+                    "motion": {
+                        "linear_x": motion["linear_x"],
+                        "linear_y": motion["linear_y"],
+                        "angular_z": motion["angular_z"],
+                        "rate_hz": result["effective_rate_hz"],
+                        "duration": result["effective_duration"],
+                    },
+                    "requested_duration": result["requested_duration"],
+                    "effective_duration": result["effective_duration"],
+                    "duration_compensation": result["duration_compensation"],
+                    "requested_rate_hz": result["requested_rate_hz"],
+                    "effective_rate_hz": result["effective_rate_hz"],
+                },
+                "ros_bridge_url": member["ros_bridge_url"],
+                "elapsed_ms": member["elapsed_ms"],
+                "response": member["response"],
+                "error": member["error"],
+            }
+            for member in result["members"]
+        ]
+        return {
+            "command": commands[0],
+            "commands": commands,
+            "teleop": result,
+        }
 
     def _step(self, index: int, tool_name: str, arguments: Dict[str, Any]) -> LlmTaskPlanStep:
         spec = self._tools[tool_name]

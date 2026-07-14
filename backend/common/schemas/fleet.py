@@ -143,6 +143,11 @@ class FleetTeleopResponse(BaseModel):
     target_robots: list[str]
     all_ok: bool
     command: str
+    requested_duration: Optional[float] = None
+    effective_duration: Optional[float] = None
+    duration_compensation: Optional[float] = None
+    requested_rate_hz: Optional[float] = None
+    effective_rate_hz: Optional[float] = None
     members: list[FleetTeleopMemberResponse]
 
 
