@@ -259,6 +259,12 @@ class RobotAgent:
             )
             ack_status = "accepted" if motion_result["ok"] else "failed"
             detail = motion_result["detail"]
+        elif command == "llm_motion":
+            self.mode = "teleop"
+            action_name = str(command_payload.get("action") or "LLM motion").strip() or "LLM motion"
+            motion_result = self._execute_app_like_motion(command_payload, action_name=action_name)
+            ack_status = "accepted" if motion_result["ok"] else "failed"
+            detail = motion_result["detail"]
         elif command == "corridor_crawl":
             self.mode = "busy"
             motion_result = self._execute_limited_motion(
@@ -408,6 +414,40 @@ class RobotAgent:
             }
         if start_delay_sec > 0 and self.stop_event.wait(start_delay_sec):
             return {"ok": False, "detail": f"{action_name} cancelled before scheduled start"}
+        url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/cmd-vel"
+        try:
+            with httpx.Client(timeout=command["duration"] + 3.0) as client:
+                response = client.post(url, json=command)
+        except httpx.RequestError as exc:
+            return {"ok": False, "detail": f"{action_name} failed: ROS bridge unreachable at {url}: {exc}"}
+        if not response.is_success:
+            return {
+                "ok": False,
+                "detail": f"{action_name} failed: ROS bridge returned HTTP {response.status_code}: {response.text}",
+            }
+        return {"ok": True, "detail": f"{action_name} motion accepted: {command}"}
+
+    def _execute_app_like_motion(self, payload: Dict[str, Any], action_name: str) -> Dict[str, Any]:
+        motion = payload.get("motion", {})
+        if not isinstance(motion, dict):
+            motion = {}
+        command = {
+            "linear_x": self._float_in_range(motion.get("linear_x"), 0.0, -0.18, 0.18),
+            "linear_y": self._float_in_range(motion.get("linear_y"), 0.0, -0.18, 0.18),
+            "angular_z": self._float_in_range(motion.get("angular_z"), 0.0, -0.9, 0.9),
+            "duration": self._float_in_range(motion.get("duration"), 1.0, 0.1, 2.0),
+            "rate_hz": self._float_in_range(motion.get("rate_hz"), 10.0, 1.0, 15.0),
+            "wait_for_subscriber_timeout": 1.0,
+        }
+        active_axes = sum(
+            1
+            for value in (command["linear_x"], command["linear_y"], command["angular_z"])
+            if abs(value) > 1e-6
+        )
+        if active_axes != 1:
+            return {"ok": False, "detail": f"{action_name} rejected: expected exactly one motion axis, got {command}"}
+        if self.dry_run:
+            return {"ok": True, "detail": f"dry-run {action_name} accepted: {command}"}
         url = f"{settings.ros_bridge_http_url.rstrip('/')}/api/teleop/cmd-vel"
         try:
             with httpx.Client(timeout=command["duration"] + 3.0) as client:

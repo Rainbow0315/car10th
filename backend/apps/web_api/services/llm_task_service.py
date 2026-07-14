@@ -53,7 +53,7 @@ class LlmTaskService:
         source = "rule_fallback"
         llm_error: Optional[str] = None
 
-        if self._is_forward_request(request.message):
+        if self._is_direct_motion_request(request.message) or self._is_stop_request(request.message):
             steps = self._plan_with_rules(request)
         elif request.allow_llm and settings.llm_api_key and settings.llm_api_base:
             try:
@@ -151,6 +151,29 @@ class LlmTaskService:
                 for robot_code in robot_codes
             ]
             return {"commands": commands}
+        if step.tool == "fleet.motion":
+            robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
+            self._ensure_ready([robot_code])
+            action = str(step.arguments.get("action") or "").strip().lower()
+            motion = self._motion_for_action(action)
+            duration = self._float_in_range(
+                step.arguments.get("duration_seconds") or step.arguments.get("duration"),
+                1.0,
+                0.2,
+                2.0,
+            )
+            motion["duration"] = duration
+            command = self._publish_command(
+                robot_code,
+                "llm_motion",
+                {
+                    "action": action,
+                    "reason": step.arguments.get("reason") or f"LLM requested {action} motion",
+                    "source": "llm_task_planner",
+                    "motion": motion,
+                },
+            )
+            return {"command": command}
         if step.tool == "fleet.nudge_forward":
             robot_code = str(step.arguments.get("robot_code") or "robot_001").strip()
             self._ensure_ready([robot_code])
@@ -425,7 +448,8 @@ class LlmTaskService:
             "rules": [
                 "Only use tools from available_tools.",
                 "Do not output direct cmd_vel or raw chassis commands.",
-                "For a brief forward movement request, use fleet.nudge_forward with optional duration_seconds capped at 2.0.",
+                "For direct app-like motion requests such as forward, backward, left, right, rotate left, or rotate right, use fleet.motion with action and optional duration_seconds capped at 2.0.",
+                "Use fleet.safety_stop only when the user asks to stop, brake, halt, or emergency-stop.",
                 "For formation, corridor, rescue, yield, and hazard requests, prefer the matching fleet.* tool.",
                 "Motion commands require confirmation.",
                 "Return JSON only.",
@@ -519,17 +543,13 @@ class LlmTaskService:
             robot_codes = request.robot_codes if request.robot_codes else [robot_code]
             return [self._step(1, "fleet.formation", {"robot_codes": robot_codes, "formation_type": "line"})]
 
-        if any(keyword in text for keyword in ["前进", "向前", "往前", "forward", "move forward"]):
-            duration = self._duration_seconds(text)
+        direct_motion = self._direct_motion_arguments(text, robot_code)
+        if direct_motion is not None:
             return [
                 self._step(
                     1,
-                    "fleet.nudge_forward",
-                    {
-                        "robot_code": robot_code,
-                        "duration_seconds": duration,
-                        "reason": f"LLM parsed from: {text[:80]}",
-                    },
+                    "fleet.motion",
+                    direct_motion,
                 )
             ]
 
@@ -571,9 +591,57 @@ class LlmTaskService:
             return [self._step(1, "fleet.readiness", {"robot_codes": [robot_code]})]
         return [self._step(1, "fleet.summary", {})]
 
-    def _is_forward_request(self, text: str) -> bool:
+    def _is_direct_motion_request(self, text: str) -> bool:
         normalized = text.strip().lower()
-        return any(keyword in normalized for keyword in ["前进", "向前", "往前", "forward", "move forward"])
+        return self._motion_action_from_text(normalized) is not None
+
+    def _is_stop_request(self, text: str) -> bool:
+        normalized = text.strip().lower()
+        return any(keyword in normalized for keyword in ["stop", "halt", "brake", "停止", "停车", "刹车", "急停"])
+
+    def _direct_motion_arguments(self, text: str, robot_code: str) -> Optional[Dict[str, Any]]:
+        normalized = text.strip().lower()
+        action = self._motion_action_from_text(normalized)
+        if action is None:
+            return None
+        return {
+            "robot_code": robot_code,
+            "action": action,
+            "duration_seconds": self._duration_seconds(text),
+            "reason": f"LLM parsed from: {text[:80]}",
+        }
+
+    def _motion_action_from_text(self, normalized: str) -> Optional[str]:
+        stop_words = ["stop", "halt", "brake", "停止", "停车", "刹车", "急停"]
+        if any(word in normalized for word in stop_words):
+            return None
+
+        checks = [
+            ("rotate_left", ["rotate left", "turn left", "spin left", "左转", "向左转", "逆时针"]),
+            ("rotate_right", ["rotate right", "turn right", "spin right", "右转", "向右转", "顺时针"]),
+            ("backward", ["move backward", "backward", "reverse", "back up", "后退", "倒车", "向后", "往后"]),
+            ("left", ["move left", "strafe left", "shift left", "向左移动", "左移", "往左", "向左平移"]),
+            ("right", ["move right", "strafe right", "shift right", "向右移动", "右移", "往右", "向右平移"]),
+            ("forward", ["move forward", "forward", "go forward", "前进", "向前", "往前"]),
+        ]
+        for action, keywords in checks:
+            if any(keyword in normalized for keyword in keywords):
+                return action
+        return None
+
+    def _motion_for_action(self, action: str) -> Dict[str, float]:
+        defaults = {
+            "forward": {"linear_x": 0.18, "linear_y": 0.0, "angular_z": 0.0, "rate_hz": 10.0},
+            "backward": {"linear_x": -0.18, "linear_y": 0.0, "angular_z": 0.0, "rate_hz": 10.0},
+            "left": {"linear_x": 0.0, "linear_y": 0.18, "angular_z": 0.0, "rate_hz": 10.0},
+            "right": {"linear_x": 0.0, "linear_y": -0.18, "angular_z": 0.0, "rate_hz": 10.0},
+            "rotate_left": {"linear_x": 0.0, "linear_y": 0.0, "angular_z": 0.9, "rate_hz": 10.0},
+            "rotate_right": {"linear_x": 0.0, "linear_y": 0.0, "angular_z": -0.9, "rate_hz": 10.0},
+        }
+        motion = defaults.get(action)
+        if motion is None:
+            raise ValueError(f"Unsupported LLM motion action: {action}")
+        return dict(motion)
 
     def _step(self, index: int, tool_name: str, arguments: Dict[str, Any]) -> LlmTaskPlanStep:
         spec = self._tools[tool_name]
@@ -712,6 +780,17 @@ class LlmTaskService:
                 command_name="emergency_stop",
                 required_arguments=["robot_codes"],
                 safety_level="safe_command",
+                requires_confirmation=True,
+            ),
+            LlmToolSpec(
+                name="fleet.motion",
+                title="单车短时运动",
+                description="模仿 App 单车控制按钮，只允许 forward/backward/left/right/rotate_left/rotate_right 六种短时动作；可选 duration_seconds，最大 2 秒。",
+                backend_route="MQTT fleet/command/{robot_code}",
+                command_name="llm_motion",
+                required_arguments=["robot_code", "action"],
+                safety_level="motion_command",
+                readiness_required=True,
                 requires_confirmation=True,
             ),
             LlmToolSpec(

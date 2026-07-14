@@ -11,6 +11,7 @@ LlmToolName = Literal[
     "fleet.list_robots",
     "fleet.readiness",
     "fleet.safety_stop",
+    "fleet.motion",
     "fleet.nudge_forward",
     "fleet.rescue_approach",
     "fleet.rescue_search",
