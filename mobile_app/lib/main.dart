@@ -12,7 +12,7 @@ Future<void> main() async {
   final settings = AppSettings();
   await settings.load();
 
-  final session = AppSession();
+  final session = AppSession(settings: settings);
   await session.load();
 
   runApp(
@@ -21,7 +21,7 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: session),
         Provider<Repository>(
-          create: (_) => CloudRepository(settings: settings),
+          create: (_) => CloudRepository(settings: settings, session: session),
           dispose: (_, repo) => repo.dispose(),
         ),
       ],

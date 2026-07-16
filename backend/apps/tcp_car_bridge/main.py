@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from apps.ros_bridge.publishers.cmd_vel import CmdVelPublisher, RosRuntimeUnavailableError
-from apps.tcp_car_bridge.audio_player import AudioPlayer
+from apps.tcp_car_bridge.audio_player import AudioPlayer, LIGHT_SHOW_TRACK_INDEX, WARNING_TRACK_INDEX
 from apps.tcp_car_bridge.event_linkage import (
     ObstacleSoundLightMonitor,
     ObstacleWarningConfig,
@@ -149,6 +149,7 @@ class TcpCarBridge:
             if self.headlights is not None:
                 self.headlights.stop()
             self.show.start()
+            self.audio.play(track_index=LIGHT_SHOW_TRACK_INDEX, volume_percent=100)
         elif command.command == "32":
             self.show.stop()
         elif command.command == "33":
@@ -322,7 +323,7 @@ class TcpCarBridge:
         if self.headlights is not None:
             self.headlights.stop(turn_off=False)
         self._set_show_light_scene(LIGHT_ON)
-        self.audio.play(track_index=0, volume_percent=100)
+        self.audio.play(track_index=WARNING_TRACK_INDEX, volume_percent=100)
 
     def _set_light_for_direction(self, direction: int) -> None:
         if direction in {3, 5}:

@@ -186,7 +186,7 @@ class CarFindingService:
                 values.extend(self._walk_extra_for_plate_text(item, key_hint))
             return values
         normalized_key = self.normalize_plate(key_hint).lower()
-        key_suggests_plate = any(token in normalized_key for token in ("plate", "text", "number", "ocr"))
+        key_suggests_plate = any(token in normalized_key for token in ("plate", "text", "number"))
         if key_suggests_plate and isinstance(value, str) and self._looks_like_plate_text(value):
             return [value]
         return []

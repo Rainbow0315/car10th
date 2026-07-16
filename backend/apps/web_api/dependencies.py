@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -48,6 +48,36 @@ def get_current_user(
     if user.status != 1:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已禁用")
     return user
+
+
+def _permission_set(user: User) -> set[str]:
+    permissions = []
+    if user.role is not None and isinstance(user.role.permissions, list):
+        permissions = user.role.permissions
+    return {str(item) for item in permissions if item is not None}
+
+
+def has_permission(user: User, required: str | Iterable[str]) -> bool:
+    permissions = _permission_set(user)
+    if "*" in permissions:
+        return True
+    if isinstance(required, str):
+        required_permissions = {required}
+    else:
+        required_permissions = {str(item) for item in required}
+    return bool(permissions.intersection(required_permissions))
+
+
+def require_permission(required: str | Iterable[str]):
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if not has_permission(current_user, required):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="当前角色无权执行该操作",
+            )
+        return current_user
+
+    return dependency
 
 
 def get_client_ip(request: Request) -> Optional[str]:

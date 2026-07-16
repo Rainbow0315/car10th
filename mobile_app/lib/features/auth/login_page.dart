@@ -12,8 +12,8 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _username = TextEditingController(text: 'operator01');
-  final _password = TextEditingController(text: '123456');
+  final _username = TextEditingController(text: 'admin');
+  final _password = TextEditingController(text: 'admin123');
   bool _loading = false;
 
   @override
@@ -32,6 +32,11 @@ class _LoginPageState extends State<LoginPage> {
             username: _username.text,
             password: _password.text,
           );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('登录失败：$exc')),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -105,7 +110,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '示例账号：admin01 / duty01 / operator01（根据前缀自动识别角色）',
+                      '登录后由后端 JWT 返回角色与权限',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                       textAlign: TextAlign.center,

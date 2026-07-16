@@ -34,7 +34,27 @@ String alarmStatusLabel(AlarmStatus status) {
 }
 
 String compactDateTime(DateTime value) {
-  final local = value.toLocal();
+  final local = beijingDateTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
   return '${local.month}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+String beijingDateTimeText(DateTime value) {
+  final local = beijingDateTime(value);
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}:${two(local.second)} UTC+8';
+}
+
+DateTime beijingDateTime(DateTime value) {
+  if (value.isUtc) {
+    return value.toUtc().add(const Duration(hours: 8));
+  }
+  return value;
+}
+
+String alarmDisplayName(AlarmEvent alarm) {
+  final label = alarm.detectionLabel?.trim();
+  if (label != null && label.isNotEmpty) return label;
+  return alarmTypeLabel(alarm.type);
 }

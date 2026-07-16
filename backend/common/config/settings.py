@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     model_fod: str = str(BASE_DIR / "apps/ai_service/weights/fod_detect.pt")
     model_unified: str = str(BASE_DIR / "apps/ai_service/weights/road_inspection_6class.pt")
     model_plate: str = str(BASE_DIR / "apps/ai_service/weights/plate_detect_ccpd.pt")
+    plate_ocr_service_enabled: bool = True
+    plate_ocr_service_url: str = "http://192.168.137.20:8010/api/ocr/plate"
+    plate_ocr_service_timeout_sec: float = 8.0
     inspection_monitor_topic: str = "/image_raw"
     inspection_monitor_interval_sec: float = 1.0
     inspection_monitor_timeout_sec: float = 5.0

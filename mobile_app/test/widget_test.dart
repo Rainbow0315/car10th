@@ -7,11 +7,12 @@ import 'package:provider/provider.dart';
 
 void main() {
   testWidgets('app starts', (tester) async {
+    final settings = AppSettings();
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => AppSettings()),
-          ChangeNotifierProvider(create: (_) => AppSession()),
+          ChangeNotifierProvider.value(value: settings),
+          ChangeNotifierProvider(create: (_) => AppSession(settings: settings)),
           Provider<Repository>(create: (_) => MockRepository()),
         ],
         child: const App(),

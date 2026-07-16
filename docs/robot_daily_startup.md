@@ -33,7 +33,13 @@ pkill -f "uvicorn apps.web_api.main:app" || true
 nohup python3 -m uvicorn apps.web_api.main:app --host 0.0.0.0 --port 8000 > /tmp/web_api.log 2>&1 &
 ```
 
-如果要在告警中心显示 YOLO 风险截图，还要在 Windows 上启动图片接收服务。车端会把风险帧上传到 `192.168.137.20:8010`，截图保存到 `D:\code\car\car10th\backend\runtime\inspection\cloud_frames`：
+如果要在告警中心显示 YOLO 风险截图，或要让车牌识别读取具体号码，还要在 Windows 上启动图片/OCR 云服务。车端会把风险帧上传到 `192.168.137.20:8010`，截图保存到 `D:\code\car\car10th\backend\runtime\inspection\cloud_frames`；车1本地没有 PaddleOCR 时，会把车牌裁剪图发到 `http://192.168.137.20:8010/api/ocr/plate` 做 OCR：
+
+第一次使用车牌 OCR 前确认 Windows Python 里有 RapidOCR：
+
+```powershell
+python -m pip install rapidocr_onnxruntime -i https://pypi.org/simple
+```
 
 ```powershell
 cd D:\code\car\car10th\backend
@@ -46,7 +52,7 @@ python scripts\cloud_file_server.py
 Invoke-RestMethod http://127.0.0.1:8010/health
 ```
 
-预期返回 `{"status":"ok","service":"cloud_file_server"}`。如果这个服务没起，新告警仍能入库，但 `image_url` 为空，App 只能尝试从产图小车读取旧路径。
+预期返回 `{"status":"ok","service":"cloud_file_server"}`。如果这个服务没起，新告警仍能入库，但 `image_url` 为空，App 只能尝试从产图小车读取旧路径；车牌找车也只能返回车牌框，不能读出具体号码。
 
 检查 Windows 到小车：
 

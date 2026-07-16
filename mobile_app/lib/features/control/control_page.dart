@@ -1147,8 +1147,9 @@ IconData _lightEffectIcon(RobotLightEffect effect) {
 String _audioClipLabel(RobotAudioClip clip) {
   return switch (clip) {
     RobotAudioClip.warning => '前方有危险',
-    RobotAudioClip.lightShow => '灯光秀',
-    RobotAudioClip.systemPrompt => '系统提示',
+    RobotAudioClip.reverse => '倒车请注意',
+    RobotAudioClip.scared => '你吓到我了',
+    RobotAudioClip.lightShow => '灯光秀音频',
   };
 }
 

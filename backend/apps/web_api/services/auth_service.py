@@ -17,7 +17,7 @@ from common.utils.security import create_access_token, hash_password, verify_pas
 
 
 class AuthService:
-    DEFAULT_REGISTER_ROLE = "operator"
+    DEFAULT_REGISTER_ROLE = "dutyOfficer"
 
     def register(self, db: Session, payload: RegisterRequest, request: Request) -> TokenResponse:
         if db.query(User).filter(User.username == payload.username).first():

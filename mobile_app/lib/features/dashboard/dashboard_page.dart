@@ -84,18 +84,6 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: () => _push(const TaskConfigPage()),
       ),
       _QuickAction(
-        label: '设置巡航路线',
-        icon: Icons.alt_route_outlined,
-        enabled: session.canTaskConfig(),
-        onTap: () => _push(const TaskConfigPage()),
-      ),
-      _QuickAction(
-        label: '设置定时巡航',
-        icon: Icons.schedule,
-        enabled: session.canTaskConfig(),
-        onTap: () => _push(const TaskConfigPage()),
-      ),
-      _QuickAction(
         label: '引导找车',
         icon: Icons.directions_car_filled_outlined,
         enabled: session.canRemoteControl(),

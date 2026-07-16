@@ -53,7 +53,8 @@ class _CarFindingPageState extends State<CarFindingPage> {
     if (message.contains('timed out') || message.contains('Timeout')) {
       return '摄像头取帧超时，请确认小车摄像头在线后重试。';
     }
-    if (message.contains('failed_models') || message.contains('Internal Server Error')) {
+    if (message.contains('failed_models') ||
+        message.contains('Internal Server Error')) {
       return '车牌识别服务暂时不可用，请确认服务已启动后重试。';
     }
     return '找车失败，请稍后重试。$message';
@@ -73,6 +74,7 @@ class _CarFindingPageState extends State<CarFindingPage> {
             onSubmitted: (_) => _startFinding(),
             decoration: const InputDecoration(
               labelText: '车牌号',
+              helperText: '支持：沪A12345、沪 A-12345、A12345；系统会自动忽略空格和短横线。',
               prefixIcon: Icon(Icons.pin_outlined),
               border: OutlineInputBorder(),
             ),
@@ -174,7 +176,9 @@ class _ResultCard extends StatelessWidget {
 class _PlateCheckResult {
   final bool matched;
   final String expectedPlate;
+  final String expectedNormalizedPlate;
   final List<String> detectedPlates;
+  final List<String> detectedNormalizedPlates;
   final int totalDetections;
   final List<String> completedModels;
   final List<String> failedModels;
@@ -182,7 +186,9 @@ class _PlateCheckResult {
   const _PlateCheckResult({
     required this.matched,
     required this.expectedPlate,
+    required this.expectedNormalizedPlate,
     required this.detectedPlates,
+    required this.detectedNormalizedPlates,
     required this.totalDetections,
     required this.completedModels,
     required this.failedModels,
@@ -195,7 +201,10 @@ class _PlateCheckResult {
     return _PlateCheckResult(
       matched: json['matched'] == true,
       expectedPlate: (json['expected_plate'] ?? '-').toString(),
+      expectedNormalizedPlate:
+          (json['expected_normalized_plate'] ?? '-').toString(),
       detectedPlates: _stringList(json['detected_plates']),
+      detectedNormalizedPlates: _stringList(json['detected_normalized_plates']),
       totalDetections: _asInt(summaryMap['total_detections']),
       completedModels: _stringList(summaryMap['completed_models']),
       failedModels: _stringList(summaryMap['failed_models']),
@@ -203,14 +212,22 @@ class _PlateCheckResult {
   }
 
   List<String> get displayLines {
-    final detected = detectedPlates.isEmpty ? '未识别到车牌' : detectedPlates.join('、');
+    final detected =
+        detectedPlates.isEmpty ? '未读出车牌号码' : detectedPlates.join('、');
     final lines = <String>[
       '目标车牌：$expectedPlate',
+      '匹配格式：$expectedNormalizedPlate',
       '识别到的车牌：$detected',
       '比对结果：${matched ? '车牌一致，可以引导客户找车。' : '车牌不一致，请确认车牌或重新识别。'}',
     ];
+    if (detectedNormalizedPlates.isNotEmpty) {
+      lines.add('识别匹配格式：${detectedNormalizedPlates.join('、')}');
+    }
     if (totalDetections > 0) {
       lines.add('识别到的目标数量：$totalDetections');
+      if (detectedPlates.isEmpty) {
+        lines.add('提示：模型检测到了车牌区域，但 OCR 没有读出具体号码。');
+      }
     }
     if (failedModels.isNotEmpty) {
       lines.add('识别状态：部分识别服务异常，建议重试。');

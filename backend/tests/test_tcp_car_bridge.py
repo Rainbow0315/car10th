@@ -4,6 +4,7 @@ import sys
 import time
 import unittest
 
+from apps.tcp_car_bridge.audio_player import LIGHT_SHOW_TRACK_INDEX, WARNING_TRACK_INDEX
 from apps.tcp_car_bridge.event_linkage import nearest_front_obstacle_distance
 from apps.tcp_car_bridge.main import ExternalCommandError, ProtocolError, TcpCarBridge, parse_frame
 from apps.tcp_car_bridge.serial_hardware import LIGHT_LEFT, LIGHT_OFF, LIGHT_ON, LIGHT_RIGHT
@@ -94,6 +95,7 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.bridge.handle_frame(frame("32"))
         self.assertEqual(self.show.started, 1)
         self.assertEqual(self.show.stopped, [True])
+        self.assertEqual(self.audio.played, [(LIGHT_SHOW_TRACK_INDEX, 100)])
 
     def test_manual_motion_cancels_show(self) -> None:
         self.show.is_running = True
@@ -170,7 +172,7 @@ class TcpCarBridgeTests(unittest.TestCase):
         self.bridge._handle_front_obstacle_warning(0.35)
         self.assertEqual(self.show.stopped, [True])
         self.assertEqual(self.publisher.light_messages, [("/RGBLight", LIGHT_ON, 3)])
-        self.assertEqual(self.audio.played, [(0, 100)])
+        self.assertEqual(self.audio.played, [(WARNING_TRACK_INDEX, 100)])
 
 
 class ObstacleDistanceTests(unittest.TestCase):

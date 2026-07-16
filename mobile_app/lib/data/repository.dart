@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 
 import '../app/app_settings.dart';
+import '../app/session.dart';
 import 'models.dart';
 
 String? _cleanScheduleCron(String? value) {
@@ -28,8 +29,9 @@ enum RobotLightEffect {
 
 enum RobotAudioClip {
   warning(0),
-  lightShow(1),
-  systemPrompt(2);
+  reverse(1),
+  scared(2),
+  lightShow(3);
 
   final int code;
 
@@ -532,9 +534,10 @@ class TcpCarRepository extends MockRepository {
 }
 
 class CloudRepository extends TcpCarRepository {
-  CloudRepository({required super.settings});
+  CloudRepository({required super.settings, required this.session});
 
   bool _queueFollowStarted = false;
+  final AppSession session;
 
   Uri _uri(
     String path, {
@@ -593,10 +596,11 @@ class CloudRepository extends TcpCarRepository {
     Map<String, String?> query = const {},
     String? baseUrl,
   }) async {
+    final uri = _uri(path, query: query, baseUrl: baseUrl);
     final response = await http
-        .get(_uri(path, query: query, baseUrl: baseUrl))
+        .get(uri, headers: _headers())
         .timeout(const Duration(seconds: 10));
-    return _decode(response);
+    return _decode(response, uri);
   }
 
   Future<dynamic> _postJson(
@@ -604,36 +608,51 @@ class CloudRepository extends TcpCarRepository {
     Map<String, Object?> body, {
     String? baseUrl,
   }) async {
+    final uri = _uri(path, baseUrl: baseUrl);
     final response = await http
         .post(
-          _uri(path, baseUrl: baseUrl),
-          headers: {'Content-Type': 'application/json'},
+          uri,
+          headers: _headers(jsonBody: true),
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 30));
-    return _decode(response);
+    return _decode(response, uri);
   }
 
   Future<dynamic> _putJson(String path, Map<String, Object?> body) async {
+    final uri = _uri(path);
     final response = await http
         .put(
-          _uri(path),
-          headers: {'Content-Type': 'application/json'},
+          uri,
+          headers: _headers(jsonBody: true),
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 30));
-    return _decode(response);
+    return _decode(response, uri);
   }
 
   Future<dynamic> _deleteJson(String path) async {
-    final response =
-        await http.delete(_uri(path)).timeout(const Duration(seconds: 30));
-    return _decode(response);
+    final uri = _uri(path);
+    final response = await http
+        .delete(uri, headers: _headers())
+        .timeout(const Duration(seconds: 30));
+    return _decode(response, uri);
   }
 
-  dynamic _decode(http.Response response) {
+  Map<String, String> _headers({bool jsonBody = false}) {
+    final headers = <String, String>{};
+    if (jsonBody) headers['Content-Type'] = 'application/json';
+    final token = session.token;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
+
+  dynamic _decode(http.Response response, Uri uri) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('HTTP ${response.statusCode}: ${response.body}');
+      throw StateError(
+          'HTTP ${response.statusCode} from $uri: ${response.body}');
     }
     if (response.body.isEmpty) return null;
     return jsonDecode(utf8.decode(response.bodyBytes));
@@ -1077,7 +1096,8 @@ class CloudRepository extends TcpCarRepository {
     }
     await super.stopFleetTracking(robotCodes: robotCodes);
     if (queueStopError != null) {
-      throw StateError('Queue follow stop failed after TCP stop: $queueStopError');
+      throw StateError(
+          'Queue follow stop failed after TCP stop: $queueStopError');
     }
   }
 

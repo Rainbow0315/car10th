@@ -37,7 +37,7 @@ CREATE TABLE users (
 -- ============================================================
 CREATE TABLE role (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '角色ID',
-    role_code       VARCHAR(32)     NOT NULL COMMENT '角色编码，如 admin/operator/maintainer',
+    role_code       VARCHAR(32)     NOT NULL COMMENT '角色编码，如 admin/dutyOfficer/operator',
     role_name       VARCHAR(64)     NOT NULL COMMENT '角色名称',
     permissions     JSON            NULL COMMENT '权限列表 JSON，如 ["alarm:read","patrol:write"]',
     description     VARCHAR(255)    NULL COMMENT '角色描述',
@@ -337,9 +337,9 @@ ALTER TABLE person
 -- 初始种子数据
 -- ============================================================
 INSERT INTO role (role_code, role_name, permissions, description, sort_order) VALUES
-('admin',     '管理员', '["*"]',                                              '全部权限',           1),
-('operator',  '值班员', '["alarm:read","alarm:handle","patrol:read","report:read"]', '查看告警、处理告警', 2),
-('maintainer','运维',   '["robot:control","patrol:write","config:write"]',    '遥控小车、配置任务',   3);
+('admin',       '管理员',   '["*"]',                                                                                         '全部权限',                 1),
+('dutyOfficer', '值班员',   '["dashboard:read","robot:read","alarm:read","alarm:handle","patrol:read","patrol:write","report:read","llm:use"]', '值班监控、告警处置、巡检任务', 2),
+('operator',    '运维人员', '["robot:read","robot:control","alarm:read","alarm:handle","patrol:read","patrol:write","camera:read"]',             '遥控小车、现场核查、任务配置', 3);
 
 INSERT INTO users (username, password_hash, display_name, role_id) VALUES
 ('admin', '$2b$12$PLACEHOLDER_CHANGE_ON_DEPLOY', '系统管理员', 1);

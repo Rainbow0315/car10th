@@ -28,6 +28,30 @@ class CarFindingServiceTests(unittest.TestCase):
 
         self.assertEqual(service.extract_plate_candidates(detection), ["\u6CAAA12345"])
 
+    def test_extract_plate_candidates_ignores_cloud_ocr_backend(self):
+        service = CarFindingService()
+        detection = {
+            "results": {
+                "plate": {
+                    "detections": [
+                        {
+                            "label": "license_plate",
+                            "confidence": 0.91,
+                            "extra": {
+                                "plate_number": "",
+                                "ocr_backend": "cloud",
+                                "ocr_candidates": [
+                                    {"text": "\u6CAA A-12345", "score": 0.92}
+                                ],
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+
+        self.assertEqual(service.extract_plate_candidates(detection), ["\u6CAA A-12345"])
+
     def test_verify_compares_detected_plate_with_record(self):
         service = CarFindingService()
         service.park_at_spot_one("demo_user", "\u6CAAA12345")

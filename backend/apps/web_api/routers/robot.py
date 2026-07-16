@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from apps.web_api.dependencies import get_current_user
+from apps.web_api.dependencies import get_current_user, require_permission
 from apps.web_api.services.mqtt_service import mqtt_service
 from apps.web_api.services.robot_service import robot_service
 from common.config.database import get_db
@@ -37,7 +37,7 @@ def list_robot_status(_: User = Depends(get_current_user)):
 def control_robot(
     payload: RobotControlRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("robot:control")),
 ):
     result = mqtt_service.control_via_rest(db, current_user.id, payload)
     return RobotControlResponse(**result)

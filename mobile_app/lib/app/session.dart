@@ -1,5 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'app_settings.dart';
 
 enum UserRole {
   admin,
@@ -16,7 +21,12 @@ class AppSession extends ChangeNotifier {
   String? _username;
   UserRole? _role;
 
+  final AppSettings settings;
+
+  AppSession({required this.settings});
+
   bool get isLoggedIn => _token != null && _role != null;
+  String? get token => _token;
   String? get username => _username;
   UserRole? get role => _role;
 
@@ -37,17 +47,42 @@ class AppSession extends ChangeNotifier {
     required String username,
     required String password,
   }) async {
-    final role = _inferRole(username);
-    final token = 'mock_token_${DateTime.now().millisecondsSinceEpoch}';
+    final uri = _uri('/api/auth/login');
+    final response = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'username': username.trim(),
+            'password': password,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(_errorMessage(response, uri));
+    }
+
+    final payload =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final token = payload['access_token'] as String?;
+    final user = payload['user'] as Map<String, dynamic>?;
+    final roleJson = user?['role'] as Map<String, dynamic>?;
+    final roleCode = roleJson?['role_code'] as String?;
+    if (token == null || token.isEmpty || roleCode == null) {
+      throw StateError('登录响应缺少 token 或角色信息');
+    }
+
+    final role = _parseRoleCode(roleCode);
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kTokenKey, token);
     await prefs.setString(_kRoleKey, role.name);
-    await prefs.setString(_kUsernameKey, username);
+    await prefs.setString(_kUsernameKey, username.trim());
 
     _token = token;
     _role = role;
-    _username = username;
+    _username = username.trim();
     notifyListeners();
   }
 
@@ -76,18 +111,46 @@ class AppSession extends ChangeNotifier {
       _role == UserRole.operator ||
       _role == UserRole.dutyOfficer;
 
-  UserRole _inferRole(String username) {
-    final s = username.toLowerCase();
-    if (s.startsWith('admin')) return UserRole.admin;
-    if (s.startsWith('duty')) return UserRole.dutyOfficer;
-    return UserRole.operator;
-  }
-
   UserRole? _parseRole(String? roleStr) {
     if (roleStr == null) return null;
     for (final r in UserRole.values) {
       if (r.name == roleStr) return r;
     }
     return null;
+  }
+
+  UserRole _parseRoleCode(String roleCode) {
+    switch (roleCode) {
+      case 'admin':
+        return UserRole.admin;
+      case 'dutyOfficer':
+      case 'duty_officer':
+      case 'duty':
+        return UserRole.dutyOfficer;
+      case 'operator':
+      case 'maintainer':
+        return UserRole.operator;
+      default:
+        throw StateError('未知用户角色：$roleCode');
+    }
+  }
+
+  Uri _uri(String path) {
+    final base = settings.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+    final cleanPath = path.startsWith('/') ? path : '/$path';
+    return Uri.parse('$base$cleanPath');
+  }
+
+  String _errorMessage(http.Response response, Uri uri) {
+    var detail = response.body;
+    try {
+      final json = jsonDecode(utf8.decode(response.bodyBytes));
+      if (json is Map<String, dynamic> && json['detail'] != null) {
+        detail = json['detail'].toString();
+      }
+    } catch (_) {
+      // Keep raw body when backend does not return JSON.
+    }
+    return 'HTTP ${response.statusCode} from $uri: $detail';
   }
 }

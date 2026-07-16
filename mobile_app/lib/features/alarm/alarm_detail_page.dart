@@ -81,6 +81,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
             return Center(child: Text('未找到告警：${widget.alarmId}'));
           }
           if (_remark.text.isEmpty) _remark.text = alarm.remark ?? '';
+          final sourceRows = _sourceRows(alarm);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
@@ -97,7 +98,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
                     '${(alarm.confidence * 100).toStringAsFixed(1)}%',
                   ),
                   _InfoRow('处理状态', alarmStatusLabel(alarm.status)),
-                  _InfoRow('检测时间', alarm.timestamp.toLocal().toString()),
+                  _InfoRow('检测时间', beijingDateTimeText(alarm.timestamp)),
                   _InfoRow('检测模型', alarm.detectionModel ?? '-'),
                   _InfoRow('识别标签', alarm.detectionLabel ?? '-'),
                   _InfoRow('边界框', _bboxText(alarm.bbox)),
@@ -106,20 +107,7 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
               const SizedBox(height: 12),
               _InfoSection(
                 title: '来源位置',
-                rows: [
-                  _InfoRow('小车编号', alarm.robotCode ?? '-'),
-                  _InfoRow('相机编号', alarm.cameraCode ?? '-'),
-                  _InfoRow(
-                    '坐标',
-                    'x=${alarm.point.x.toStringAsFixed(2)}, y=${alarm.point.y.toStringAsFixed(2)}',
-                  ),
-                  _InfoRow(
-                    '朝向',
-                    '${alarm.point.yaw.toStringAsFixed(2)} rad',
-                  ),
-                  _InfoRow(
-                      '截图路径', alarm.imagePath.isEmpty ? '-' : alarm.imagePath),
-                ],
+                rows: sourceRows,
               ),
               const SizedBox(height: 12),
               _HandleSection(
@@ -139,6 +127,32 @@ class _AlarmDetailPageState extends State<AlarmDetailPage> {
   String _bboxText(List<double> bbox) {
     if (bbox.isEmpty) return '-';
     return bbox.map((v) => v.toStringAsFixed(1)).join(', ');
+  }
+
+  List<_InfoRow> _sourceRows(AlarmEvent alarm) {
+    final rows = [
+      _InfoRow('小车编号', alarm.robotCode ?? '-'),
+      _InfoRow('相机编号', alarm.cameraCode ?? '-'),
+    ];
+    if (_hasRealPose(alarm)) {
+      rows.addAll([
+        _InfoRow(
+          '坐标',
+          'x=${alarm.point.x.toStringAsFixed(2)}, y=${alarm.point.y.toStringAsFixed(2)}',
+        ),
+        _InfoRow(
+          '朝向',
+          '${alarm.point.yaw.toStringAsFixed(2)} rad',
+        ),
+      ]);
+    }
+    rows.add(_InfoRow('截图路径', alarm.imagePath.isEmpty ? '-' : alarm.imagePath));
+    return rows;
+  }
+
+  bool _hasRealPose(AlarmEvent alarm) {
+    const eps = 0.0001;
+    return alarm.point.x.abs() > eps || alarm.point.y.abs() > eps;
   }
 }
 

@@ -17,6 +17,14 @@ class PatrolWaypoint(BaseModel):
     name: str = Field("", max_length=128)
 
 
+class PatrolRuntimeGoal(BaseModel):
+    seq: int = Field(..., ge=0)
+    x: float
+    y: float
+    yaw: float = 0.0
+    name: str = Field("", max_length=128)
+
+
 class PatrolTaskCreateRequest(BaseModel):
     task_name: str = Field(..., min_length=1, max_length=128)
     robot_code: str = Field("robot_001", min_length=1, max_length=32)
@@ -76,7 +84,7 @@ class PatrolRuntimePayload(BaseModel):
     state: str
     robot_code: str
     current_seq: Optional[int] = None
-    current_goal: Optional[PatrolWaypoint] = None
+    current_goal: Optional[PatrolRuntimeGoal] = None
     last_pose: Optional[Dict[str, float]] = None
     message: Optional[str] = None
     updated_at: datetime

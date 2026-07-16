@@ -94,6 +94,37 @@ class _AlarmListPageState extends State<AlarmListPage> {
         child: FutureBuilder<List<AlarmEvent>>(
           future: _future,
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              final message =
+                  snapshot.error.toString().replaceAll(RegExp(r'\s+'), ' ');
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 42,
+                    color: cs.error,
+                  ),
+                  const SizedBox(height: 10),
+                  Text('告警读取失败', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 6),
+                  Text(
+                    message,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('重试'),
+                    ),
+                  ),
+                ],
+              );
+            }
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -152,7 +183,7 @@ class _AlarmListPageState extends State<AlarmListPage> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        '${alarmTypeLabel(a.type)} · ${alarmStatusLabel(a.status)}',
+                                        '${alarmDisplayName(a)} · ${alarmStatusLabel(a.status)}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         softWrap: false,

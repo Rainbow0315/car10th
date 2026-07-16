@@ -9,14 +9,30 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 
-DEFAULT_AUDIO_FILES: Sequence[str] = (
-    "/home/jetson/car_audio/alert.mp3",
-    "/home/jetson/car_audio/前方有危险.MP3",
-    "/home/jetson/car_audio/reverse.mp3",
-    "/home/jetson/car_audio/scared.mp3",
-    "/home/jetson/car_audio/light_show.wav",
-    "/home/jetson/audio/light_show.wav",
-    "/usr/share/sounds/alsa/Front_Center.wav",
+WARNING_TRACK_INDEX = 0
+REVERSE_TRACK_INDEX = 1
+SCARED_TRACK_INDEX = 2
+LIGHT_SHOW_TRACK_INDEX = 3
+
+AUDIO_TRACKS: Sequence[Sequence[str]] = (
+    (
+        "/home/jetson/car_audio/alert.mp3",
+        "/home/jetson/car_audio/前方有危险.MP3",
+    ),
+    (
+        "/home/jetson/car_audio/reverse.mp3",
+        "/home/jetson/car_audio/倒车请注意.MP3",
+    ),
+    (
+        "/home/jetson/car_audio/scared.mp3",
+        "/home/jetson/car_audio/你吓到我了.MP3",
+    ),
+    (
+        "/home/jetson/car_audio/sbsp.mp3",
+    ),
+)
+DEFAULT_AUDIO_FILES: Sequence[str] = tuple(
+    audio_file for track in AUDIO_TRACKS for audio_file in track
 )
 
 
@@ -92,8 +108,8 @@ class AudioPlayer:
 
     def _resolve_audio_file(self, track_index: int) -> Optional[Path]:
         candidates = []
-        if 0 <= track_index < len(DEFAULT_AUDIO_FILES):
-            candidates.append(DEFAULT_AUDIO_FILES[track_index])
+        if 0 <= track_index < len(AUDIO_TRACKS):
+            candidates.extend(AUDIO_TRACKS[track_index])
         if self._audio_file.strip():
             candidates.append(self._audio_file)
         candidates.extend(DEFAULT_AUDIO_FILES)
@@ -111,9 +127,9 @@ class AudioPlayer:
         suffix = audio_file.suffix.lower()
         if suffix == ".mp3":
             player = (
-                shutil.which("mpg123")
+                shutil.which("ffplay")
                 or shutil.which("mpv")
-                or shutil.which("ffplay")
+                or shutil.which("mpg123")
             )
             if player is not None:
                 if Path(player).name == "ffplay":
